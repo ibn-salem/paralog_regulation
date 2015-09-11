@@ -7,16 +7,15 @@ epilog="""
 """
 
 import networkx as nx
-import matplotlib.pyplot as plt # only for drawing for debug
 
+#~ import matplotlib.pyplot as plt # only for drawing for debug
 
-
-def plotGraph(G):
-    
-    nx.draw(G)
+#~ def plotGraph(G):    
+#~ """only for debug propose:"""
+    #~ nx.draw(G)
     #~ nx.draw_circular(G)
     #~ nx.draw_spectral(G)
-    plt.show()
+    #~ plt.show()
 
 def getMaxWeightMatching(G):
     """Returns the maximum weighted matching of G as dict"""    

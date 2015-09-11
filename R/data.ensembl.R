@@ -31,7 +31,7 @@ chromFileDog = "data/canFam3/canFam3.chrom.sizes"
 outPrefixDataEnsembl=paste0("results/data/ensembl.data.", VERSION_DATA_ENSEMBL)
 
 # make directory if not exist already
-dir.create(dirname(outPrefixDataEnsembl), showWarnings = FALSE)
+dir.create(dirname(outPrefixDataEnsembl), showWarnings = FALSE, recursive=TRUE)
 
 # TODO use makefiel like dependency instead of the USE_LOCAL_DATA_ENSEMBL option
 USE_LOCAL_DATA_ENSEMBL = TRUE
@@ -44,7 +44,7 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
 
     # define database and choose the human gene dataset
     # use last ensembl VERSION_DATA_ENSEMBL corresponding to human assembly GRCh37 (ensembl75) 
-    ensemblGRCh37 = useMart(host="grch37.ensembl.org", biomart="ENSEMBL_MART_ENSEMBL",dataset="hsapiens_gene_ensembl")
+    ensemblGRCh37 <- useMart(host="grch37.ensembl.org", biomart="ENSEMBL_MART_ENSEMBL",dataset="hsapiens_gene_ensembl", verbose=TRUE)
     
     #-------------------------------------------------------------------
     # get all genes with annotation:

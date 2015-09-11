@@ -16,7 +16,7 @@ require(stringr)        # for functions like paste0()
 #=======================================================================
 # parameters and input data files
 #=======================================================================
-VERSION_DATA_CAPTUREHIC="v01"
+VERSION_DATA_CAPTUREHIC="v02"
 
 #promoter-promoter interaction from Capture Hi-C (Mifsud2015a)
 CAPTURC_FILE="data/Mifsud2015/TS5_GM12878_promoter-promoter_significant_interactions.txt"
@@ -43,7 +43,7 @@ if ( !USE_LOCAL_DATA_CAPTUREHIC) {
     # genes and seqInfoRealChrom should be loaded by data.ensembl.R script
     tssGR = getTssGRfromENSEMBLGenes(genes, seqInfoRealChrom, colNames=c("hgnc_symbol"))
     
-    captureHiC <- parseCaptureHiC(inFile=CAPTURC_FILE, tssGR)    
+    captureHiC <- parseCaptureHiC(inFile=CAPTURC_FILE, tssGR)
 
 #~     # due to sparse matrix data structure non available pairs will get 0 counts
 #~     # since no 0 count pair is in the original data, we can replace all 0 with NA

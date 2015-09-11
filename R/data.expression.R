@@ -11,13 +11,14 @@ require(stringr)        # for functions like paste0()
 #=======================================================================
 # parameters and input data files
 #=======================================================================
-VERSION_DATA_EXPRESSION="v01"
+VERSION_DATA_EXPRESSION="v02"
 
 # Human gene expression data sets from Expression Atlas:
 EXPRESSION_FILE_LIST = list(
     "FANTOM5_tissues"="data/ExpressionAtlas/E-MTAB-3358.tsv",
     "ENCODE_cell_lines"="data/ExpressionAtlas/E-GEOD-26284.tsv",
     "Uhlen_Lab_tissues"="data/ExpressionAtlas/E-MTAB-2836.tsv",
+    "GTEx"="data/ExpressionAtlas/E-MTAB-2919.tsv",
     "Illumina_Body_Map"="data/ExpressionAtlas/E-MTAB-513.tsv")
 
 
@@ -48,5 +49,4 @@ parseExpressionAtlas = function(inFile){
 
 # parse expression data as list of data.frame
 expDFlist = lapply(EXPRESSION_FILE_LIST, parseExpressionAtlas)
-
 

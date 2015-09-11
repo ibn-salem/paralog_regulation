@@ -43,7 +43,7 @@ parseOConnorRegMap <- function(regMapFile){
 parseFANTOM5RegMap <- function(regMapFile, allGenes, allEnhancers, seqInfo){
 
     # read FANTOM5 regulatory map, which contains bed interval of associted enhancer to promoters
-    FANTOM5 = read.delim(regMapFile, skip=1)
+    FANTOM5 = read.delim(regMapFile)
     
     #chr1:67198280-67198800;NM_001037339;PDE4B;R:0.385;FDR:0
     regGene = as.data.frame(str_split_fixed(FANTOM5$name, ";", 5))

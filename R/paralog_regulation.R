@@ -83,12 +83,18 @@
 # - Compute fraction of one-to-one orthologs within the same TAD from 
 #   only those human paralogs that are in the same TAD
 # - include size of mouse and dog TADs in the size boxplot of all TADs
+# - for expression analysis replace boxplot with density plot (similar to Fortin2015)
 
 # TO FINALIZE PIPELINE FOR SUBMISSION:
 # - redesign code to run on MOGON server
 # - make all gene pair data frames as.character()
 # - use orghologMouse instead of orthologAll data set
 # - use seed() command for reproducible randomizations
+# - remove the following parts from the analysis (if not included in manuscript):
+#   - TF motif analysis
+#   - conserved TADs over all cell types
+#   - MIC score of expression correlation
+
 
 require(biomaRt)        # to retrieve human paralogs from Ensembl
 require(stringr)        # for some string functionality
@@ -107,6 +113,7 @@ source("R/functions.regMap.R")
 source("R/functions.genePairs.R")
 source("R/functions.genePairs.randomization.R")
 source("R/functions.genePairs.paralog_analysis.R")
+source("R/parseHiC.R")
 
 # load ensemble data sets of genes and paralog pairs
 source("R/data.ensembl.R")
@@ -131,8 +138,8 @@ RaoDomainFiles = c(
 )
 
 DixonDomainFiles = c(
-    Dixon_hESC="data/Dixon2012/hESC.hg19.bed",
-    Dixon_IMR90="data/Dixon2012/IMR90.hg19.bed"
+    Dixon_hESC="data/Dixon2012/hESC.hg18.bed.hg19.bed",
+    Dixon_IMR90="data/Dixon2012/IMR90.hg18.bed.hg19.bed"
 )
 
 # Mouse and dog TADs from Rudan et al. 2015
@@ -186,23 +193,22 @@ WORKIMAGE_FILE = paste0(outPrefix, "workspace.Rdata")
 tssGR = getTssGRfromENSEMBLGenes(genes, seqInfoRealChrom, colNames=c("hgnc_symbol"))
 tssGR$gene_size = genes[names(tssGR), "end_position"] - genes[names(tssGR), "start_position"]
 
-promoterGR = promoters(tssGR, upstream=PROMOTER_UPSTREAM, downstream=PROMOTER_DOWNSTREAM)
-export(promoterGR, con=paste0(outDataPrefix, ".promoters.bed"), format="BED")
+## promoterGR = promoters(tssGR, upstream=PROMOTER_UPSTREAM, downstream=PROMOTER_DOWNSTREAM)
+## export(promoterGR, con=paste0(outDataPrefix, ".promoters.bed"), format="BED")
 
 ## TODO:
 ## Here the matrix-scan analysis should be executed. 
 ## See matrix-scan_pipeline.sh script
 ##
 
-# get motif match table:
-matrixScanFile = paste0(outDataPrefix, ".promoters.bed.names.fa.jaspar.matrix-scan.uniquePos")
-motifTable = parseMatrixScan(matrixScanFile, names(promoterGR))
-motifTableBinary = motifTable
-motifTableBinary[motifTable>0] = 1
+## # get motif match table:
+## matrixScanFile = paste0(outDataPrefix, ".promoters.bed.names.fa.jaspar.matrix-scan.uniquePos")
+## motifTable = parseMatrixScan(matrixScanFile, names(promoterGR))
+## motifTableBinary = motifTable
+## motifTableBinary[motifTable>0] = 1
 
-# import motif hit table:
-
-write.table(motifTable, file=paste0(matrixScanFile, ".counts.tab"), sep="\t", quote=FALSE, row.names=TRUE, col.names=NA)
+## # import motif hit table:
+## write.table(motifTable, file=paste0(matrixScanFile, ".counts.tab"), sep="\t", quote=FALSE, row.names=TRUE, col.names=NA)
 
 #-----------------------------------------------------------------------
 # Parse enhancers in correlation based maps
@@ -239,9 +245,9 @@ tssGR$linked_enhancer =  sapply(gene2ehID[names(tssGR)], length)
 RaoTADs = lapply(RaoDomainFiles, parseDomainsRao, disjoin=FALSE, seqinfo=seqInfo)
 allTADs = c(
     RaoTADs,
-    lapply(DixonDomainFiles, import.bed, seqinfo=seqInfo),
-    "stable_TADs"=getConservedTADs(RaoTADs, maxgap=10^4, n=3)
-    )
+    lapply(DixonDomainFiles, import.bed, seqinfo=seqInfo)
+#~     ,"stable_TADs"=getConservedTADs(RaoTADs, maxgap=10^4, n=3)
+)
     
 #~ allBoundaries = lapply(allTADs, getNonOverlappingBoundaries, min.gapwidth=1)
 
@@ -270,8 +276,6 @@ speciesHiC = list(
 
 # expDFlist is already loaded in the script "R/data.expression.R"
 nExp = length(expDFlist)
-
-require(VennDiagram)
 
 # plot overlap of ENSG IDs in expression data and gene set:
 for (expName in names(expDFlist)) {

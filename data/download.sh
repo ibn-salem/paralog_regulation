@@ -16,13 +16,15 @@ mkdir -p ${BIN}
 mkdir -p hg19
 #~ wget -P hg19 http://hgdownload.cse.ucsc.edu/goldenPath/hg19/bigZips/hg19.chrom.sizes 
 mysql --user=genome --host=genome-mysql.cse.ucsc.edu -A -e "select chrom, size from hg19.chromInfo"  > hg19/hg19.genome
-wget -P hg19 http://hgdownload.cse.ucsc.edu/goldenPath/hg19/bigZips/hg19.2bit
+# filter for real chromosomes:
+head -n 25  hg19/hg19.genome > hg19/hg19.genome.realChroms
 
+# get hg19 reference genome sequence
+wget -P hg19 http://hgdownload.cse.ucsc.edu/goldenPath/hg19/bigZips/hg19.2bit
 # convert .2bit to .fasta format
 wget -P ${BIN} http://hgdownload.cse.ucsc.edu/admin/exe/linux.x86_64/twoBitToFa
 chmod u+x ${BIN}/twoBitToFa
 ${BIN}/twoBitToFa hg19/hg19.2bit hg19/hg19.fa
-
 
 # mouse genome chromosome sizes
 mkdir -p mm10
@@ -317,6 +319,7 @@ wget -P Rudan2015 ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE65nnn/GSE65126/suppl/
 
 #~ wget -P Rudan2015 ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE65nnn/GSE65126/suppl/GSE65126%5FHiC%5Fmacaque%5Fliver%5Fmerged%5F50000%2Etxt%2Egz
 #~ wget -P Rudan2015 ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE65nnn/GSE65126/suppl/GSE65126%5FHiC%5Frabbit%5Fliver%5Fmerged%5F50000%2Etxt%2Egz
+gunzip Rudan2015/*.gz
 
 #=======================================================================
 # JASPAR vertebrate core data base (Downloaded 26.05.15)
