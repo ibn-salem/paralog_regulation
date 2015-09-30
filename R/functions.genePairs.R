@@ -180,6 +180,28 @@ onlyTwoPairs <- function(genePairs, includeDuplicates=FALSE){
 
 
 #-----------------------------------------------------------------------
+# get all adjacent gene pairs as gene pair data.frame
+#-----------------------------------------------------------------------
+getAdjacentPairs <- function(tssGR){
+    
+    # sort by ignoring strand
+    sortedTSS = sort(tssGR, ignore.strand=TRUE)
+    # make strand artificially to '+' because precede is calculated with respect to transcription direction
+    strand(sortedTSS) = "+"
+    
+    # get the next tss for each gene along the chromsome
+    # using the precede() function from GenomicRanges package
+    nextGene = precede(sortedTSS)
+
+    gP = data.frame(
+        g1 = names(sortedTSS[!is.na(nextGene)]), 
+        g2 = names(sortedTSS[nextGene[!is.na(nextGene)]])
+    )
+
+}
+
+
+#-----------------------------------------------------------------------
 # get mapping of gene names to enhancer IDs
 #-----------------------------------------------------------------------
 getGenetoEhIDmapping <- function(geneNames, enhancerIDs){
@@ -883,3 +905,8 @@ uniquePairPerGeneBySimIteratively <- function(gP, similarity){
     
     return(uniqPairs)
 }
+
+
+
+
+

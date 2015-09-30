@@ -121,13 +121,16 @@ mkdir -p Rao2014
 wget -P Rao2014 ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE63nnn/GSE63525/suppl/GSE63525%5FIMR90%5FREADME%2Ertf
 
 # IMR90 combined matrices (~3.8 GB in .gz)
-wget -P Rao2014 ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE63nnn/GSE63525/suppl/GSE63525%5FIMR90%5Fintrachromosomal%5Fcontact%5Fmatrices%2Etar%2Egz
+wget -P Rao2014 ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE63nnn/GSE63525/suppl/GSE63525_IMR90_intrachromosomal_contact_matrices.tar.gz
 
 # GM12878 combined matrices (~35 GB in .gz)
-wget -P Rao2014 ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE63nnn/GSE63525/suppl/GSE63525%5FGM12878%5Fcombined%5Finterchromosomal%5Fcontact%5Fmatrices%2Etar%2Egz
+wget -P Rao2014 ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE63nnn/GSE63525/suppl/GSE63525_GM12878_combined_intrachromosomal_contact_matrices.tar.gz
 
 # mouse CH12-LX 
 wget -P Rao2014 ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE63nnn/GSE63525/suppl/GSE63525%5FCH12%2DLX%5FArrowhead%5Fdomainlist%2Etxt%2Egz
+
+# unpack matrices
+tar xvfz Rao2014/*.tar.gz -C Rao2014
 
 # unzip all
 gunzip Rao2014/*.gz

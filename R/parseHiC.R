@@ -7,11 +7,12 @@
 #
 #=======================================================================
 
-require(stringr)    # for paste0 function
+require(stringr)        # for paste0 function
 require(gdata)
-require(Matrix)     # for sparse matrix data structure
-require(HiTC)       # for Hi-C experiment class and functions
-require(rtracklayer)# for import.bed
+require(Matrix)         # for sparse matrix data structure
+require(HiTC)           # for Hi-C experiment class and functions
+require(rtracklayer)    # for import.bed
+require(BiocParallel)   # for parallel computing
 
 #-----------------------------------------------------------------------
 # Creates a GRanges object with bins at a given resolution on given chrom
@@ -193,11 +194,8 @@ parseRaoHiC <- function(cell, resolution, dirPrefix, seqInfo, normalizeByExpecte
     # get all available chromosome names:
     chromosomes = list.dirs(path =chromDir , full.names = FALSE, recursive = FALSE)
     
-    # initialize list variable with false (because empty list is not allowed)
-    hiClist = list()
-    
     # iterate over each available chromosome to parse intra-chromosomal map
-    for (chr in chromosomes){
+    hiClist = bplapply(chromosomes, function(chr){
         
         message(paste("Begin to parse data for chromosome", chr, "..."))
         rawMatrixFile = file.path(chromDir, chr, mapQualStr, paste0(chr, "_", resStr, ".RAWobserved"))
@@ -210,18 +208,13 @@ parseRaoHiC <- function(cell, resolution, dirPrefix, seqInfo, normalizeByExpecte
         # normalize by expected counts given each bin distance
         if (normalizeByExpected){
             expectedfile = file.path(chromDir, chr, mapQualStr, paste0(chr, "_", resStr, expectedSuffix))
-            exp = normalizeByDistanceExpected(exp, expectedFile)
+            exp = normalizeByDistanceExpected(exp, expectedfile)
         }
+        return(exp)
         
-        # append map to list (or create list if not exists)
-        if (length(hiClist) > 0){
-            hiClist = c(hiClist, exp )
-        }else{
-            hiClist = HTClist(exp)
-        }
-    }
-    
-    return(hiClist)
+    })
+
+    return(HTClist(hiClist))
     
 }
 
@@ -409,8 +402,9 @@ getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=sum){
     # initilize zero vector
     freq = rep(NA, n)
     
-    # iterate over all unique chromosomes
-    for (chr in unique(chroms)){
+    # iterate over all unique chromosomes (in parallel)
+#~     for (chr in unique(chroms)){
+    freqValues = bplapply(as.character(unique(chroms)), function(chr){
     
         message(paste("INFO: Query interactions for chromosome:", chr))
 
@@ -424,8 +418,8 @@ getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=sum){
         if ( ! mapName %in% names(HiClist) ){
             
             message(paste("WARNING: Could not find map with name:", mapName))
-            freq[onChrom] = NA
-            
+#~             freq[onChrom] = NA
+            return(NA)
         }else{
         
             map = HiClist[[mapName]]        
@@ -435,13 +429,25 @@ getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=sum){
             idxY = as.list( findOverlaps(yRange[onChrom], y_intervals(map)) ) 
     
             # query the interaction matrix with the indexes of bins
-            freq[onChrom] = mapply(
-                function(i,j){ combineFun( intdata(map)[i,j] )}, 
-                idxX, idxY)
+#~             freq[onChrom] = mapply(
+            return(
+                mapply(function(i,j){ combineFun( intdata(map)[i,j] )}, 
+                    idxX, idxY)
+                )
         }
         
-    }
+        
+    })
 
+    # add chrom as names
+    names(freqValues) <- unique(chroms)
+    
+    # now add values to data frame
+    for (chr in unique(chroms)){
+        # get indexes of input ranges on that chrom
+        onChrom = which(chroms == chr)
+        freq[onChrom] = freqValues[[chr]]
+    }
     return(freq)
 }
 # xRange = tssGR[cisPairs[abs(cisPairs$dist) > 10^5,1][1:10]]
