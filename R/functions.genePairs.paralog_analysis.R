@@ -127,11 +127,11 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
     message("Start to sample random gene pairs...")
 
     # First sample randomly from all gnes
-    randPairs = replicate(N_RAND, getRandomPairs(nrow(paralogPairsUniqGuniqP), names(tssGR)), simplify=FALSE)
+    randPairs = bplapply(1:N_RAND, function(x){getRandomPairs(nrow(paralogPairsUniqGuniqP), names(tssGR))})
         
     # filter for random pairs in Cis
     randPairsInCis = lapply(randPairs, getCisPairs, tssGR)
-    randPairsInCis = lapply(randPairsInCis, addPairDist, tssGR)
+    randPairsInCis = bplapply(randPairsInCis, addPairDist, tssGR)
     
     # get all possible gene pairs within MAX_DIST bp
     allGenePairs = getAllGenePairs(tssGR, maxDist=MAX_DIST)
@@ -140,20 +140,22 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
     cisWeights = getSampleWeightsByDist(allGenePairs, cisPairs, adjust=DENSITY_BW_ADJUST)
     
     # sample gene pairs
-    randCisPairs = replicate(N_RAND, 
+    randCisPairs = bplapply(1:N_RAND, function(x){ 
         sampleFromAllPairsByWeight(n=nrow(cisPairs), hitDF=allGenePairs, tssGR, weight=cisWeights)
-        , simplify=FALSE)
+        })
     
+    message("INFO: Start to collect all distal gene pairs...")
     # Now sample from all possible gene pairs within DISTAL_MIN_DIST - DISTAL_MAX_DIST bp
     allDistalGenePairs = getAllGenePairs(tssGR, maxDist=DISTAL_MAX_DIST, minDist=DISTAL_MIN_DIST)
+    message("INFO: Finish to collect all distal gene pairs.")
     
     # get sample weights according to distance
     distalWeight = getSampleWeightsByDist(allDistalGenePairs, distalCisPairs, adjust=DENSITY_BW_ADJUST)
     
     # sample according to distance
-    randDistalCisPairs = replicate(N_RAND, 
+    randDistalCisPairs = bplapply(1:N_RAND, function(x){ 
         sampleFromAllPairsByWeight(n=nrow(distalCisPairs), hitDF=allDistalGenePairs, tssGR, weight=distalWeight)
-        , simplify=FALSE)
+        })
     
     #-----------------------------------------------------------------------
     # fraction of paralog pairs on same chromosom
@@ -198,11 +200,11 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
     
     # make GRanges objects for cis paralog pairs and random paris on same chromosome
     cisParaGR = getPairAsGR(cisPairs, tssGR)
-    cisRandGR = lapply(randCisPairs, getPairAsGR, tssGR)
+    cisRandGR = bplapply(randCisPairs, getPairAsGR, tssGR)
     
     # co-occurance within the same domain
     cisParaGR = addWithinSubject(cisParaGR, TAD, tadName)
-    cisRandGR = lapply(cisRandGR, addWithinSubject, TAD, tadName)
+    cisRandGR = bplapply(cisRandGR, addWithinSubject, TAD, tadName)
     
     
     # Plot fraction of paralog pairs within TAD
@@ -352,62 +354,10 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
     # save ggplot as pdf
     ggsave(p, file=paste0(outPrefix, ".distal_pairs.Hi-C_normalized_contacts_noZero.ggboxplot.pdf"), width=3.5)
     
-#~     # compare contact frequencies 
-#~     paraHiCfreq = distalCisPairs$HiCfreq
-#~     randHiCfreq = randDistalCisPairsCombined$HiCfreq
-#~     
-#~     # Wilcoxon-rank-sum test
-#~     ws.test = wilcox.test(paraHiCfreq, randHiCfreq)
-#~     
-#~     pdf(paste0(outPrefix, ".distal_pairs.Hi-C_raw_contacts.boxplot.pdf"))
-#~         par(cex=1.5, mgp=c(3,1,0))
-#~         boxplot(paraHiCfreq+1, randHiCfreq+1, 
-#~             log="y", border=COL, lwd=2, 
-#~             main=paste0("Willcoxon p-value: ", signif(ws.test$p.value, 2)))
-#~         #points(c(1,2), c(mean(paraHiCfreq+1, na.rm=TRUE), mean(randHiCfreq+1, na.rm=TRUE)), pch=18, col=COL, cex=2)
-#~         xlabels=paste(c("Paralog genes", "Sampled genes"), "\n n = ", c(length(paraHiCfreq), length(randHiCfreq)),
-#~             "\nmedian: ",
-#~             signif(c(median(paraHiCfreq, na.rm=TRUE), median(randHiCfreq, na.rm=TRUE)), 3),
-#~             "\nmean: ",
-#~             signif(c(mean(paraHiCfreq, na.rm=TRUE), mean(randHiCfreq, na.rm=TRUE)), 3))
-#~         axis(1, at = c(1, 2), labels=xlabels, line=3, tick=FALSE)
-#~         mtext("Hi-C contacts \n between TSS of distal gene pairs", side=2, line=2, cex=1.5)
-#~     dev.off()
-#~     
-#~     paraHiCnorm = distalCisPairs$HiCnorm
-#~     randHiCnorm = randDistalCisPairsCombined$HiCnorm
-#~         
-#~     # Wilcoxon-rank-sum test
-#~     ws.test = wilcox.test(paraHiCnorm, randHiCnorm)
-#~     #ttest = t.test(paraHiCnorm, randHiCnorm)
-#~     
-#~     pdf(paste0(outPrefix, ".distal_pairs.Hi-C_normalized_contacts.boxplot.pdf"))
-#~     
-#~         par(mgp=c(3,1,0),cex=1.5)
-#~         boxplot(paraHiCnorm, randHiCnorm,
-#~             border=COL, lwd=2,
-#~             ylab="log2(observed / expected) Hi-C contacts", 
-#~             main=paste0("Willcoxon p-value: ", signif(ws.test$p.value, 2)))
-#~                 #,"\nT-test p-value: ", signif(ttest$p.value, 2)))
-#~         xlabels=paste(
-#~             c("Paralog genes", "Sampled genes"), 
-#~             "\n n = ", 
-#~             c(length(paraHiCnorm), length(randHiCnorm)),
-#~             "\nmedian: ",
-#~             signif(c(median(paraHiCnorm, na.rm=TRUE), median(randHiCnorm, na.rm=TRUE)), 3),
-#~             "\nmean: ",
-#~             signif(c(mean(paraHiCnorm, na.rm=TRUE), mean(randHiCnorm, na.rm=TRUE)), 3))
-#~         axis(1, at = c(1, 2), labels=xlabels, line=3, tick=FALSE)
-#~     
-#~     dev.off()
-#~     
-    #boxplot(c(list(cisPairs$HiCfreq), lapply(randCisPairs, function(df) df$HiCfreq)))
-
-    
 }
 #~ outPrefix=paste0(outPrefix, ".Mouse")
 #~ paralogPairs=paralogPairsMouse
-#~ pairScoreCol="mmusculus_paralog_dn"
+#~ pairScoreCol="mmusculus_paralog_ds"
 #~ tssGR=tssGRmouse
 #~ TAD=speciesTADs[["mmusculus"]]
 #~ tissueName="Mouse"

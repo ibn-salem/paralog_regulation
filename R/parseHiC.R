@@ -390,7 +390,7 @@ getInteractions <- function(xRange, yRange, HiClist){
 # Query an Hi-C interaction matrix with two (or more) genomic intervals.
 # E.g to get the interaction frequencies between two TSS coordinates.
 #-----------------------------------------------------------------------
-getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=sum){
+getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=sum, inParallel=TRUE){
     
     # assume equal length of the input ranges
     stopifnot(length(xRange) == length(yRange))
@@ -404,7 +404,8 @@ getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=sum){
     
     # iterate over all unique chromosomes (in parallel)
 #~     for (chr in unique(chroms)){
-    freqValues = bplapply(as.character(unique(chroms)), function(chr){
+#~     freqValues = bplapply(as.character(unique(chroms)), function(chr){
+    freqValues = get(ifelse(inParallel, "bplapply", "lapply"))(as.character(unique(chroms)), function(chr){
     
         message(paste("INFO: Query interactions for chromosome:", chr))
 

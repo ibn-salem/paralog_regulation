@@ -137,7 +137,7 @@ my.boxplot <- function(valueList, offset=0.075, names=names(valueList), log = ""
 #-----------------------------------------------------------------------
 # Modified barplot function with rotated x-labels 
 #-----------------------------------------------------------------------
-my.barplot <- function(values, offset=0.1, beside=TRUE, addValues=FALSE, digits=3, yMax = ifelse(addValues, 1.2*max(values), max(values)), names=NULL, axis.lwd=0, mar=c(7, 4, 4, 2) + 0.1, srt=45, adj=1, ...){
+my.barplot <- function(values, offset=0.1, beside=TRUE, addValues=FALSE, customValues=values, digits=3, yMax = ifelse(addValues, 1.2*max(values), max(values)), names=NULL, axis.lwd=0, mar=c(7, 4, 4, 2) + 0.1, srt=45, adj=1, ...){
     
     # if input is single vector, convert it to matrix:
     if( class(values) == "numeric"){
@@ -163,15 +163,33 @@ my.barplot <- function(values, offset=0.1, beside=TRUE, addValues=FALSE, digits=
 
     axis(1, at=xpos , labels = FALSE, lwd=axis.lwd, lwd.ticks=axis.lwd)
     text(xpos , yTextPos, srt = srt, adj=adj, labels = names, xpd = TRUE)
+    
+    if (is.numeric(customValues)){
+        valueLabels = signif(customValues, digits)
+    }else{
+        valueLabels = customValues
+    }
 
     if(addValues){
-        text(bp, values, signif(values, digits), pos=3)
+        text(bp, values, valueLabels , pos=3)
     }
 
     par(op)
     return(bp)
 }
 
+#-----------------------------------------------------------------------
+# function to convert P-values into star notation 
+#-----------------------------------------------------------------------
+pValToStars <- function(pvalues, nsLabel="n.s."){
+    stars = rep(NA, length(pvalues))
+    stars[pvalues >=0.05] = nsLabel
+    stars[pvalues < 0.05] = "*"
+    stars[pvalues < 0.01] = "**"
+    stars[pvalues < 0.001] = "***"
+    stars[pvalues < 2.2*10^-16] = "****"
+    return(stars)
+}
 
 #-----------------------------------------------------------------------
 # function to add p-values to a barplot 

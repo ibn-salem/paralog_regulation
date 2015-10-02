@@ -194,10 +194,59 @@ getAdjacentPairs <- function(tssGR){
     nextGene = precede(sortedTSS)
 
     gP = data.frame(
-        g1 = names(sortedTSS[!is.na(nextGene)]), 
-        g2 = names(sortedTSS[nextGene[!is.na(nextGene)]])
+        g1 = as.character(id(sortedTSS[!is.na(nextGene)])), 
+        g2 = as.character(id(sortedTSS[nextGene[!is.na(nextGene)]]))
     )
 
+}
+
+#-----------------------------------------------------------------------
+# function to add the information if orthologs are directly adjacent to each other
+#-----------------------------------------------------------------------
+orthologsAdjacent <- function(gP, speciesLabel, orthologsSpeciesList, tssGRspecies){
+    
+    # sort by ignoring strand
+    sortedTSS = sort(tssGRspecies, ignore.strand=TRUE)
+    # make strand artificially to '+' because precede is calculated with respect to transcription direction
+    strand(sortedTSS) = "+"
+
+    g1 = as.character(gP[,1])
+    g2 = as.character(gP[,2])
+    orthoMap = orthologsSpeciesList[[speciesLabel]]
+    
+    g1_orthoIDX = match(g1, orthoMap[,1])
+    g2_orthoIDX = match(g2, orthoMap[,1])
+    
+    g1_type = orthoMap[g1_orthoIDX, paste0(speciesLabel, "_homolog_orthology_type")]
+    g2_type = orthoMap[g2_orthoIDX, paste0(speciesLabel, "_homolog_orthology_type")]
+    
+    g1_gene = orthoMap[g1_orthoIDX, paste0(speciesLabel, "_homolog_ensembl_gene")]
+    g2_gene = orthoMap[g2_orthoIDX, paste0(speciesLabel, "_homolog_ensembl_gene")]
+
+    # check that the homology type of both genes is 'one2one'
+    boghOne2one = g1_type == "ortholog_one2one" & g2_type == "ortholog_one2one"
+    
+    # check that both orhtologs are in the set of TSS of this species
+    bothInTSS = g1_gene %in% names(sortedTSS) & g2_gene %in% names(sortedTSS)
+
+    boghOne2one = boghOne2one & !is.na(boghOne2one) & bothInTSS
+
+
+    preIDX = precede(sortedTSS[g1_gene[boghOne2one]], sortedTSS)
+    pre = rep(NA, length(preIDX))
+    pre[!is.na(preIDX)] = names(sortedTSS[preIDX[!is.na(preIDX)]])
+
+    folIDX = follow(sortedTSS[g1_gene[boghOne2one]], sortedTSS)
+    fol = rep(NA, length(folIDX))
+    fol[!is.na(folIDX)] = names(sortedTSS[folIDX[!is.na(folIDX)]])
+    
+    isAdjacent = (pre == g2_gene[boghOne2one]) | (fol == g2_gene[boghOne2one])
+
+    # get values for all input gene pairs
+    orthologsAdjacent = rep(NA, nrow(gP))
+    orthologsAdjacent[boghOne2one] = isAdjacent
+    
+    return(orthologsAdjacent)
 }
 
 
@@ -312,6 +361,13 @@ getPairAsGR <- function(genePairs, tssGR){
 addWithinSubject <- function(query, subject, colName="inRegion"){
     mcols(query)[, colName] = countOverlaps(query, subject, type="within") >= 1
     return(query)
+}
+
+#-----------------------------------------------------------------------
+# get column to indicate that query lies within at least one subject object
+#-----------------------------------------------------------------------
+getWithinSubject <- function(query, subject){
+    countOverlaps(query, subject, type="within") >= 1
 }
 
 #-----------------------------------------------------------------------
@@ -474,13 +530,13 @@ duplicated.random = function(x, incomparables = FALSE, ...)
 #-----------------------------------------------------------------------
 # Adds Hi-C contact frequencies to a gene pair data set
 #-----------------------------------------------------------------------
-addHiCfreq <- function(genePair, tssGR, HiClist, label="HiCfreq"){
+addHiCfreq <- function(genePair, tssGR, HiClist, label="HiCfreq", inParallel=TRUE){
     
     genePair[,label] = getInteractionsMulti(
             tssGR[genePair[,1]], 
             tssGR[genePair[,2]], 
-            HiClist
-            )
+            HiClist,
+            inParallel=inParallel)
     return(genePair)
 }
 
@@ -686,7 +742,7 @@ pairNotNA <- function(genePairs){
 #-----------------------------------------------------------------------
 # add information of the location of one-two-one orthologs of the gene paris
 #-----------------------------------------------------------------------
-addOrthologAnnotation <- function(genePairs, orthologsAll, orgStr, tssGR, TAD, HiClist, HiClistNorm){
+addOrthologAnnotation <- function(genePairs, orthologsAll, orgStr, tssGR, TAD, HiClist, HiClistNorm, inParallel=TRUE){
 
     # get orthologs pairs
     orthoPairs = getOrthologs(genePairs, orthologsAll, orgStr, tssGR)
@@ -713,8 +769,8 @@ addOrthologAnnotation <- function(genePairs, orthologsAll, orgStr, tssGR, TAD, H
     # add Hi-C counts
     subOnSameChrom = which(genePairs[,paste0(orgStr, "_sameChrom")])
     
-    genePairs[subOnSameChrom, paste0(orgStr, "_HiC")] = addHiCfreq(orthoPairs[subOnSameChrom,], tssGR, HiClist, label="rawHiC")$rawHiC
-    genePairs[subOnSameChrom, paste0(orgStr, "_HiCnorm")] = addHiCfreq(orthoPairs[subOnSameChrom,], tssGR, HiClistNorm, label="HiCnorm")$HiCnorm
+    genePairs[subOnSameChrom, paste0(orgStr, "_HiC")] = addHiCfreq(orthoPairs[subOnSameChrom,], tssGR, HiClist, label="rawHiC", inParallel=inParallel)$rawHiC
+    genePairs[subOnSameChrom, paste0(orgStr, "_HiCnorm")] = addHiCfreq(orthoPairs[subOnSameChrom,], tssGR, HiClistNorm, label="HiCnorm", inParallel=inParallel)$HiCnorm
     
     
     return(genePairs)

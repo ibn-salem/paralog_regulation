@@ -43,34 +43,34 @@
 # X check for same strand correlation with distance
 # X Use capture Hi-C data (from latest Peter Fraser paper) to quantify contacts between paralogs
 #       - recheck parsing and sparse matrix object (manually check function parseCaptureHiC in parseHiC.R)
-# # take duplication age (dN) into account
-# - for faster pipeline Run: outsource parsing of (and scanning) of TF motifs
+# # take duplication age (dS) into account
+# # for faster pipeline Run: outsource parsing of (and scanning) of TF motifs
 # - Recheck sampling of gene pairs by distance.
 #       - try to sample separatly for dist and enhancer
 #       - plot distal pair distance with sampled pairs with log-log qqplot
 #       - Maybe Sample according to distance of allCisPairs and divide close and distal afterwards
 
 # DISCUSSION: (after discussion with Miguel on 16.06.15
-# - leave out expression data for the first publication
-# - Question of interest: Paralogs fitting to TAD structure of genome?
-# - RECHECK carefully mouse and dog Hi-C data (and comparision to sampled genes)
-# - change scale of distance box plot of orthologs
-# - Synteny breaks of between mouse and human around TAD boundaries.
+# X leave out expression data for the first publication
+# X Question of interest: Paralogs fitting to TAD structure of genome?
+# x RECHECK carefully mouse and dog Hi-C data (and comparision to sampled genes)
+# x change scale of distance box plot of orthologs
+# x Synteny breaks of between mouse and human around TAD boundaries.
 # X Use >= 1MB as distal pair cut-off
-# - linear distance correlation for orthologs of sampled genes (should be less correlation?)
+# X linear distance correlation for orthologs of sampled genes (should be less correlation?)
 # X Put numbers to Hi-C boxplot in ortholog analysis
 
 # FURTHER INTERESTING STUFF:
-# - GTEx Consortium RNA-seq data for expression analysis
+# X GTEx Consortium RNA-seq data for expression analysis
 # - use other functional gene pairs (KEGG, GO (level?), PPI)
-# - Colocalization of paralog pairs in other organisms (% species with shared chrom)
+# X Colocalization of paralog pairs in other organisms (% species with shared chrom)
 # - Use mouse Hi-C data from the Rao et al. 2014 paper
 
 # EXAMPLE:
 # - Check HoxA and HoxD locus in detail, as well as, IGf2/H19 locus (Kurukut et al. PNAS 2006)
-# - Use the PRC1 complex as example: 
-#       - check for CBX2,4,8 on chr17 and CBX6,7 on chr22
-#       - PHC1,2,3 are on diff. chrom
+# X Use the PRC1 complex as example: 
+# X     - check for CBX2,4,8 on chr17 and CBX6,7 on chr22
+# X     - PHC1,2,3 are on diff. chrom
 
 # ADDITIONAL ANALYSIS:
 # - repeat all analysis with all pairs, only two pairs
@@ -88,14 +88,14 @@
 # - Evolutionary breakpoint of TADs
 
 # TO FINALIZE PIPELINE FOR SUBMISSION:
-# - redesign code to run on MOGON server
+# X redesign code to run on MOGON server
 # - make all gene pair data frames as.character()
 # - use orghologMouse instead of orthologAll data set
-# - use seed() command for reproducible randomizations
+# X use seed() command for reproducible randomizations
 # - remove the following parts from the analysis (if not included in manuscript):
-#   - TF motif analysis
+#   X TF motif analysis
 #   - conserved TADs over all cell types
-#   - MIC score of expression correlation
+#   x MIC score of expression correlation
 
 
 require(biomaRt)        # to retrieve human paralogs from Ensembl
@@ -109,32 +109,6 @@ require(data.table)     # for data.table object
 require(VennDiagram)    # for area-proportional Venn-Diagrams 
 require(ggplot2)        # for nice plots
 require(BiocParallel)   # for parallel computing
-#===================================================
-multicorParam <- MulticoreParam()   # use all available cores
-register(multicorParam)  # set options
-# bpparam() # to print current options
-#===================================================
-#~ # For parallelisation
-#~ require(snow)           # for parallelisation
-#~ N_CPU=10
-#~ # make cluster object:
-#~ cl <- makeCluster(N_CPU, type="SOCK")
-#~ #===================================================
-
-
-# load some custom functions
-source("R/functions.plot.R")
-source("R/functions.regMap.R")
-source("R/functions.genePairs.R")
-source("R/functions.genePairs.randomization.R")
-source("R/functions.genePairs.paralog_analysis.R")
-source("R/functions.Hi-C.R")
-source("R/parseHiC.R")
-
-# load ensemble data sets of genes and paralog pairs
-source("R/data.ensembl.R")
-source("R/data.expression.R")  # load expression data from EBI expression atlas
-source("R/data.captureHiC.R")  # load capture Hi-C data between promoters from Mifsud et al. 2015
 
 #-----------------------------------------------------------------------
 # Define some parameters
@@ -173,18 +147,20 @@ COL2=brewer.pal(9, "Set1")[c(1,2)]  # for paralog vs. non-paralog
 COL_DOMAIN=brewer.pal(9, "Set3")
 COL_FAMILY=brewer.pal(8, "Dark2")
 COL_EH = brewer.pal(9, "Set1")[5]
-COL_TAD = brewer.pal(4, "Set1")[3]
+COL_TAD = brewer.pal(8, "Set1")[c(3,5)]
 COL_ORTHO = c(brewer.pal(12, "Paired")[5], brewer.pal(8, "Pastel2")[8])
+COL_SPECIES = brewer.pal(8, "Accent")[1:2]
 
 # use local data or downlaod data from ensemble
 USE_LOCAL = TRUE
 USE_LOCAL_HIC_CONTACTS = FALSE
-N_RAND=100              # number of random permutations of whole data sets
+#~ N_CPUS=20
+
+N_RAND=100               # number of random permutations of whole data sets
 DENSITY_BW_ADJUST=0.1   # parameter to adjust bandwidth in density estimation for sampling
+RANDOM_SEED=13521
 
 MAX_DIST=10^6
-#~ DISTAL_MAX_DIST=10^7
-#~ DISTAL_MIN_DIST=10^6
 DISTAL_MAX_DIST=10^9
 DISTAL_MIN_DIST=10^6
 
@@ -193,9 +169,7 @@ DIST_TH=c(10^6, 10^5)
 PROMOTER_UPSTREAM=800
 PROMOTER_DOWNSTREAM=200
 
-VERSION="v08"
-
-
+VERSION="v09"
 
 outDataPrefix = "results/paralog_regulation/EnsemblGRCh37_paralog_genes"
 outPrefix = paste0("results/paralog_regulation/", VERSION, "_maxDist_", MAX_DIST, "_nrand_", N_RAND, "/EnsemblGRCh37_paralog_genes")
@@ -205,6 +179,31 @@ dir.create(dirname(outPrefix), recursive=TRUE, showWarnings = FALSE)
 WORKIMAGE_FILE = paste0(outPrefix, "workspace.Rdata")
 #load(WORKIMAGE_FILE)
 #source("R/functions.genePairs.paralog_analysis.R")
+
+#-----------------------------------------------------------------------
+# Options for parallel computation
+#-----------------------------------------------------------------------
+# use all available cores but generate random number streams on each worker
+multicorParam <- MulticoreParam(RNGseed=RANDOM_SEED)   
+# set options
+register(multicorParam)  
+# bpparam() # to print current options
+
+#-----------------------------------------------------------------------
+# load some custom functions
+#-----------------------------------------------------------------------
+source("R/functions.plot.R")
+source("R/functions.regMap.R")
+source("R/functions.genePairs.R")
+source("R/functions.genePairs.randomization.R")
+source("R/functions.genePairs.paralog_analysis.R")
+source("R/functions.Hi-C.R")
+source("R/parseHiC.R")
+
+# load ensemble data sets of genes and paralog pairs
+source("R/data.ensembl.R")
+source("R/data.expression.R")  # load expression data from EBI expression atlas
+source("R/data.captureHiC.R")  # load capture Hi-C data between promoters from Mifsud et al. 2015
 
 
 #-----------------------------------------------------------------------
@@ -277,8 +276,11 @@ for (tadName in names(allTADs)){
     export(sort(TAD), paste0(outPrefix, ".TAD_data.", tadName, ".bed"))
 }
 
+orgStr2Name = c(mmusculus="mouse", cfamiliaris="dog")
+
 # parse mouse and dog TADs
 speciesSeqInfo = list("mmusculus"=seqInfoMouse, "cfamiliaris"=seqInfoDog)
+
 
 speciesTADs = lapply(1:2, function(i)
     parseRudanTADs(RudanFile, sheet=i, disjoin=FALSE, seqinfo=speciesSeqInfo[[i]])
@@ -367,17 +369,8 @@ for (expName in names(expDFlist)) {
     expDF = expDFlist[[expName]]
     
     allCisPairs = addCor(allCisPairs, expDF, colName=paste0(expName, "_expCor"))
-    
-    # add maximal information coefficient (MIC)
-    allCisPairs = addMIC(allCisPairs, expDF, colName=paste0(expName, "_MIC"))
- 
+     
 }
-
-#~ # add correlation over motif matches
-#~ allCisPairs = addCor(allCisPairs, motifTable, colName="motif_cor")
-#~ allCisPairs = addMIC(allCisPairs, motifTable, colName="motif_MIC")
-#~ allCisPairs = addCor(allCisPairs, motifTableBinary, colName="motif_binary_cor")
-#~ allCisPairs = addMIC(allCisPairs, motifTableBinary, colName="motif_binary_MIC")
 
 # add information of one-two-one orthologs in other species
 allCisPairs = addOrthologAnnotation(allCisPairs, orthologsSpeciesList[["mmusculus"]], "mmusculus", tssGRmouse, speciesTADs[["mmusculus"]], speciesHiC[["mmusculus"]][[1]], speciesHiC[["mmusculus"]][[2]] )
@@ -415,25 +408,24 @@ write.table(nPairs, file=paste0(outPrefix, ".paralog_pairs_filtering.txt"),
 
 # save before sampling
 save.image(paste0(WORKIMAGE_FILE, ".only_annotation.Rdata"))
-   
+
 #=======================================================================
 # Sample random control/background data sets
 #=======================================================================
-set.seed(13521)
 
 #-----------------------------------------------------------------------
 # Sample pairs with equal probability from all genes
 #-----------------------------------------------------------------------
 randPairs = bplapply(1:N_RAND, function(x){getRandomPairs(nrow(paralogPairsUniqGuniqP), names(tssGR))})
 
-randPairs = bplapply(randPairs, addSameStrand, tssGR)
-#~ randPairs = parLapply(cl, randPairs, addSameStrand, tssGR)
+randPairs = lapply(randPairs, addSameStrand, tssGR)
 
 # filter for random pairs in Cis
-randPairsInCis = bplapply(randPairs, getCisPairs, tssGR)
+randPairsInCis = lapply(randPairs, getCisPairs, tssGR)
 
-randPairsInCis = bplapply(randPairsInCis, addOrthologAnnotation, orthologsSpeciesList[["mmusculus"]], "mmusculus", tssGRmouse, speciesTADs[["mmusculus"]], speciesHiC[["mmusculus"]][[1]], speciesHiC[["mmusculus"]][[2]])
-randPairsInCis = bplapply(randPairsInCis, addOrthologAnnotation, orthologsSpeciesList[["cfamiliaris"]], "cfamiliaris", tssGRdog, speciesTADs[["cfamiliaris"]], speciesHiC[["cfamiliaris"]][[1]], speciesHiC[["cfamiliaris"]][[2]])
+randPairsInCis <- bplapply(randPairsInCis, addOrthologAnnotation, orthologsSpeciesList[["mmusculus"]], "mmusculus", tssGRmouse, speciesTADs[["mmusculus"]], speciesHiC[["mmusculus"]][[1]], speciesHiC[["mmusculus"]][[2]], inParallel=FALSE)
+
+randPairsInCis <- bplapply(randPairsInCis, addOrthologAnnotation, orthologsSpeciesList[["cfamiliaris"]], "cfamiliaris", tssGRdog, speciesTADs[["cfamiliaris"]], speciesHiC[["cfamiliaris"]][[1]], speciesHiC[["cfamiliaris"]][[2]], inParallel=FALSE)
 
 #-----------------------------------------------------------------------
 # Sample cis pairs according to enhancer number in paralogs and linear distance in paralog gene pairs
@@ -477,7 +469,7 @@ randDistalCisPairs = bplapply(1:N_RAND, function(x){
 # annotate sampled gene pairs
 #-----------------------------------------------------------------------
 randCisPairs = bplapply(randCisPairs, addHGNC, tssGR)
-randCisPairs = bplapply(randCisPairs, addSameStrand, tssGR)
+randCisPairs = lapply(randCisPairs, addSameStrand, tssGR)
 randCisPairs = bplapply(randCisPairs, addCommonEnhancer, gene2ehID)
 
 for (expName in names(expDFlist)) {
@@ -485,23 +477,15 @@ for (expName in names(expDFlist)) {
     
     message(paste("INFO: Annotate sampled pairs with expression form:", expName))
     randCisPairs = bplapply(randCisPairs, addCor, expDF, colName=paste0(expName, "_expCor"))
-    randCisPairs = bplapply(randCisPairs, addMIC, expDF, colName=paste0(expName, "_MIC"))
 
 }
 
 # save temp
 save.image(paste0(WORKIMAGE_FILE, ".sampling_and_after_expression_annotation.Rdata"))
 
+randCisPairs = bplapply(randCisPairs, addOrthologAnnotation, orthologsSpeciesList[["mmusculus"]], "mmusculus", tssGRmouse, speciesTADs[["mmusculus"]], speciesHiC[["mmusculus"]][[1]], speciesHiC[["mmusculus"]][[2]], inParallel=FALSE)
 
-#~ # add correlation over motif matches
-#~ randCisPairs = bplapply(randCisPairs, addCor, motifTable, colName="motif_cor")
-#~ randCisPairs = bplapply(randCisPairs, addMIC, motifTable, colName="motif_MIC")
-#~ randCisPairs = bplapply(randCisPairs, addCor, motifTableBinary, colName="motif_binary_cor")
-#~ randCisPairs = bplapply(randCisPairs, addMIC, motifTableBinary, colName="motif_binary_MIC")
-
-randCisPairs = bplapply(randCisPairs, addOrthologAnnotation, orthologsSpeciesList[["mmusculus"]], "mmusculus", tssGRmouse, speciesTADs[["mmusculus"]], speciesHiC[["mmusculus"]][[1]], speciesHiC[["mmusculus"]][[2]])
-
-randCisPairs = bplapply(randCisPairs, addOrthologAnnotation, orthologsSpeciesList[["cfamiliaris"]], "cfamiliaris", tssGRdog, speciesTADs[["cfamiliaris"]], speciesHiC[["cfamiliaris"]][[1]], speciesHiC[["cfamiliaris"]][[2]])
+randCisPairs = bplapply(randCisPairs, addOrthologAnnotation, orthologsSpeciesList[["cfamiliaris"]], "cfamiliaris", tssGRdog, speciesTADs[["cfamiliaris"]], speciesHiC[["cfamiliaris"]][[1]], speciesHiC[["cfamiliaris"]][[2]], inParallel=FALSE)
 
 
 # add promoter-promoter contacts from caputre Hi-C
@@ -520,14 +504,15 @@ randDistalCisPairs <- bplapply(1:N_RAND, function(i){
 
 
 randDistalCisPairs = bplapply(randDistalCisPairs, addHGNC, tssGR)
-randDistalCisPairs = bplapply(randDistalCisPairs, addSameStrand, tssGR)
+randDistalCisPairs = lapply(randDistalCisPairs, addSameStrand, tssGR)
 
-randDistalCisPairs = bplapply(randDistalCisPairs, addOrthologAnnotation, orthologsSpeciesList[["mmusculus"]], "mmusculus", tssGRmouse, speciesTADs[["mmusculus"]], speciesHiC[["mmusculus"]][[1]], speciesHiC[["mmusculus"]][[2]])
-randDistalCisPairs = bplapply(randDistalCisPairs, addOrthologAnnotation, orthologsSpeciesList[["cfamiliaris"]], "cfamiliaris", tssGRdog, speciesTADs[["cfamiliaris"]], speciesHiC[["cfamiliaris"]][[1]], speciesHiC[["cfamiliaris"]][[2]])
+randDistalCisPairs = bplapply(randDistalCisPairs, addOrthologAnnotation, orthologsSpeciesList[["mmusculus"]], "mmusculus", tssGRmouse, speciesTADs[["mmusculus"]], speciesHiC[["mmusculus"]][[1]], speciesHiC[["mmusculus"]][[2]], inParallel=FALSE)
+
+randDistalCisPairs = bplapply(randDistalCisPairs, addOrthologAnnotation, orthologsSpeciesList[["cfamiliaris"]], "cfamiliaris", tssGRdog, speciesTADs[["cfamiliaris"]], speciesHiC[["cfamiliaris"]][[1]], speciesHiC[["cfamiliaris"]][[2]], inParallel=FALSE)
 
 
 #-----------------------------------------------------------------------
-# save a work image after sampling and annotation.
+# save a work image after sampling and annotation before Hi-C.
 #-----------------------------------------------------------------------
 save.image(paste0(WORKIMAGE_FILE, ".sampling_and_annotation_beforeHiC.Rdata"))
 
@@ -578,6 +563,135 @@ if ( !USE_LOCAL_HIC_CONTACTS) {
 #-----------------------------------------------------------------------
 save.image(paste0(WORKIMAGE_FILE, ".sampling_and_annotation.Rdata"))
 
+
+#-----------------------------------------------------------------------
+# adjacent gene paris analysis for correlation of synteny breaks and TAD borders
+# - annotate adjacent pairs with
+#   - orthologs same chrom
+#   - orthologs adjacent
+#   - same TAD for all TADs
+#-----------------------------------------------------------------------
+adjPairs = getAdjacentPairs(tssGR)
+adjPairs = addOrthologAnnotation(adjPairs, orthologsSpeciesList[["mmusculus"]], "mmusculus", tssGRmouse, speciesTADs[["mmusculus"]], speciesHiC[["mmusculus"]][[1]], speciesHiC[["mmusculus"]][[2]] )
+adjPairs = addOrthologAnnotation(adjPairs, orthologsSpeciesList[["cfamiliaris"]], "cfamiliaris", tssGRdog, speciesTADs[["cfamiliaris"]], speciesHiC[["cfamiliaris"]][[1]], speciesHiC[["cfamiliaris"]][[2]])
+
+adjPairs[,"mmusculus_orthologs_adjacent"] = orthologsAdjacent(adjPairs, "mmusculus", orthologsSpeciesList, tssGRmouse)
+adjPairs[,"cfamiliaris_orthologs_adjacent"] = orthologsAdjacent(adjPairs, "cfamiliaris", orthologsSpeciesList, tssGRdog)
+
+adjPairsGR = getPairAsGR(adjPairs, tssGR)
+
+
+for(tadName in names(allTADs)){
+    TAD = allTADs[[tadName]]
+    # co-occurance within the same domain
+    adjPairs[,paste0(tadName, "_TAD")] = getWithinSubject(adjPairsGR, TAD)
+}
+
+# iterate over species
+pValsChromSpecies = c()
+oddsRatioChromSpecies = c()
+pValsAdjacentSpecies = c()
+oddsRatioAdjacentSpecies = c()
+
+for (orgStr in names(speciesSeqInfo)){
+    
+    orgName = orgStr2Name[orgStr]
+
+    sameChromSpecies = adjPairs[adjPairs[,paste0(orgStr, "_one2one")], paste0(orgStr, "_sameChrom")]
+    
+    orthologAdjacent = adjPairs[adjPairs[,paste0(orgStr, "_one2one")], paste0(orgStr, "_orthologs_adjacent")]
+    
+    pValsSameChrom = c()
+    oddsRatioSameChrom = c()
+    pValsAdjacent = c()
+    oddsRatioAdjacent = c()
+    
+    # iterate over TAD types and test for correlation
+    for(tadName in names(allTADs)){
+        
+        sameTAD = adjPairs[adjPairs[,paste0(orgStr, "_one2one")], paste0(tadName, "_TAD")]
+        
+        # freq matrix
+        freqMatChrom = matrix(c(
+            percentTrue(sameChromSpecies & sameTAD),
+            percentTrue(sameChromSpecies & !sameTAD),
+            percentTrue(!sameChromSpecies & sameTAD),
+            percentTrue(!sameChromSpecies & !sameTAD)
+            ), 2)
+        chiChrom = chisq.test(sameChromSpecies, sameTAD)
+        fisherChrom = fisher.test(sameChromSpecies, sameTAD)
+
+        pdf(paste0(outPrefix, ".adjacent_genes.sameChrom_", orgName, ".sameTAD_", tadName, ".pdf"))
+            par(cex=2, lwd=1.5)
+            yMax = 1.75*max(freqMatChrom)
+            bp = my.barplot(freqMatChrom, beside=TRUE, yMax=yMax, col=COL_TAD, 
+                ylab="Adjacent human gene pairs [%]", names=paste0(c("Same chr in", "Not same chr in"), "\n", orgName), main=paste("P-value =", signif(chiChrom$p.value, 3)), addValues=TRUE)
+            legend("topright", c("Same TAD", "Not same TAD"), fill=COL_TAD)
+        dev.off()
+
+        # freq matrix
+        freqMatAdj = matrix(c(
+            percentTrue(orthologAdjacent & sameTAD),
+            percentTrue(orthologAdjacent & !sameTAD),
+            percentTrue(!orthologAdjacent & sameTAD),
+            percentTrue(!orthologAdjacent & !sameTAD)
+            ), 2)
+        chiAdj = chisq.test(orthologAdjacent, sameTAD)
+        fisherAdj = fisher.test(orthologAdjacent, sameTAD)
+        pdf(paste0(outPrefix, ".adjacent_genes.adjacent_", orgName, ".sameTAD_", tadName, ".pdf"))
+            par(cex=2, lwd=1.5)
+            yMax = 1.75*max(freqMatAdj)
+            bp = my.barplot(freqMatAdj, beside=TRUE, col=COL_TAD, 
+                ylab="Adjacent human gene pairs [%]", names=paste0(c("Adjacent in", "Not adjacent in"), "\n", orgName), main=paste("P-value =", signif(chiAdj$p.value, 3)), addValues=TRUE, yMax=yMax)
+            legend("topright", c("Same TAD", "Not same TAD"), fill=COL_TAD)
+        dev.off()
+        
+        # add p-values and odds ratio to list
+        pValsSameChrom = c(pValsSameChrom, chiChrom$p.value)
+        oddsRatioSameChrom = c(oddsRatioSameChrom, fisherChrom$estimate)
+        pValsAdjacent = c(pValsAdjacent, chiAdj$p.value)
+        oddsRatioAdjacent = c(oddsRatioAdjacent, fisherAdj$estimate)
+    }
+    
+    pValsChromSpecies = rbind(pValsChromSpecies, pValsSameChrom)
+    oddsRatioChromSpecies = rbind(oddsRatioChromSpecies, oddsRatioSameChrom)
+    pValsAdjacentSpecies = rbind(pValsAdjacentSpecies, pValsAdjacent)
+    oddsRatioAdjacentSpecies = rbind(oddsRatioAdjacentSpecies, oddsRatioAdjacent)
+    
+}
+
+pdf(paste0(outPrefix, ".adjacent_genes.sameChrom_vs_TAD.oddsRatio.barplot.pdf"))
+    par(cex=1.5, lwd=1.5)
+    bp = my.barplot(oddsRatioChromSpecies, beside=TRUE, ylab="Odds ratio", names=names(allTADs), col=COL_SPECIES)
+    abline(h=1, col="red")
+    legend("topleft", orgStr2Name[names(speciesSeqInfo)], fill=COL_SPECIES)
+dev.off()
+
+pdf(paste0(outPrefix, ".adjacent_genes.sameChrom_vs_TAD.pValues.barplot.pdf"))
+    par(cex=1.5, lwd=1.5)
+    starsNotation = matrix(pValToStars(pValsChromSpecies, ""), nrow(pValsChromSpecies))
+    
+    bp = my.barplot(-log10(pValsChromSpecies), offset=0.05, beside=TRUE, ylab="-log_10 P-Value", names=names(allTADs), col=COL_SPECIES, addValues=TRUE, customValues=starsNotation, main="Re-arrengments versus TAD")
+    legend("topleft", orgStr2Name[names(speciesSeqInfo)], fill=COL_SPECIES)
+dev.off()
+
+
+pdf(paste0(outPrefix, ".adjacent_genes.adjacentOrtho_vs_TAD.oddsRatio.barplot.pdf"))
+    par(cex=1.5, lwd=1.5)
+    bp = my.barplot(oddsRatioAdjacentSpecies, beside=TRUE, ylab="Odds ratio", names=names(allTADs), col=COL_SPECIES)
+    abline(h=1, col="red")
+    legend("topleft", orgStr2Name[names(speciesSeqInfo)], fill=COL_SPECIES)
+dev.off()
+
+pdf(paste0(outPrefix, ".adjacent_genes.adjacentOrtho_vs_TAD.pValues.barplot.pdf"))
+    par(cex=1.5, lwd=1.5)
+    starsNotation = matrix(pValToStars(pValsAdjacentSpecies, ""), nrow(pValsAdjacentSpecies))
+    
+    bp = my.barplot(-log10(pValsAdjacentSpecies), offset=0.05, beside=TRUE, ylab="-log_10 P-Value", names=names(allTADs), col=COL_SPECIES, addValues=TRUE, customValues=starsNotation, main="Conserved neighbour genes vs. same TAD")
+    legend("topleft", orgStr2Name[names(speciesSeqInfo)], fill=COL_SPECIES)
+dev.off()
+
+
 #=======================================================================
 # 5.) Run analysis
 #=======================================================================
@@ -595,9 +709,7 @@ pdf(paste0(outPrefix, ".sampling_cis_dist.pdf"))
     main="Paralog pairs", xlab="Distance (kb)")
     hist(abs(randDist), 50, col=COL[2],
     main="Sampled pairs", xlab="Distance (kb)")    
-
 dev.off()
-
 
 pdf(paste0(outPrefix, ".sampling_cis_and_distal.pdf"))
     par(cex=1, lwd=1.5, mfrow=c(3,3))
@@ -816,6 +928,8 @@ uniformRandCisPairs = bplapply(uniformRandCisPairs, addPairDist, tssGR)
 randDist = unlist(lapply(uniformRandCisPairs, function(d){d[,"dist"]}))
 randDist = randDist[abs(randDist) <= MAX_DIST]
 
+sampledDist = unlist(lapply(randCisPairs, function(d){d[,"dist"]}))
+    
 pdf(paste0(outPrefix, ".random_genes_distance.hist.pdf"))
     par(cex=1.5, lwd=2, mfrow=c(2,1))
     hist(abs(paraDist)/10^3, 50, col=COL_RAND[1],
@@ -824,8 +938,23 @@ pdf(paste0(outPrefix, ".random_genes_distance.hist.pdf"))
     main="Distance between random genes", xlab="Distance (kb)")    
 dev.off()
 
+pdf(paste0(outPrefix, ".samped_random_para_dist.hist.pdf"))
+    par(lwd=2, mfrow=c(3,1))
+    par(cex=1.5,  mar=c(3, 4.1, 1.5, 2.1))
+    
+    hist(abs(paraDist)/10^3, 50, col=COL_RAND[1],
+    main="Paralog gene pairs", xlab="")
+    hist(abs(randDist)/10^3, 50, col=COL_RAND[2],
+    main="Random gene pairs", xlab="")    
+    hist(abs(sampledDist)/10^3, 50, col=COL[2],
+    main="Sampled gene pairs", xlab="")
+    mtext("Distance (kb)", side=1, line=2)    
+dev.off()
+
+
 # plot linear distance distribution for all distance thresholds:
 allRandDists = unlist(lapply(randCisPairs, function(d){d[,"dist"]}))
+
 
 for (D in DIST_TH) {
     pdf(paste0(outPrefix, ".paralogPairs_cis_within_", D/10^3, "kb.hist.pdf"))
@@ -881,8 +1010,15 @@ pdf(paste0(outPrefix, ".Compare_domain_size.boxplot.pdf"))
         ylab="TAD size [kb]", col=COL_DOMAIN)
 dev.off()
 
+pdf(paste0(outPrefix, ".Compare_domain_size.log10.boxplot.pdf"))
+    par(cex=1.3, lwd=1.5)
+    my.boxplot(lapply(sizeList, function(x){log10(x*10^3)}), names=gsub("_", " ", names(sizeList)),
+        main="Size distribution of TADs",
+        ylab="TAD size (log_10 bp)", col=COL_DOMAIN)
+dev.off()
+
 #-----------------------------------------------------------------------
-# Co-occurance in same interaction domain
+# Co-occurance in same TAD
 #-----------------------------------------------------------------------
 
 # make GRanges objects for cis paralog pairs and random paris on same chromosome
@@ -901,6 +1037,7 @@ cisRandGR = bplapply(randCisPairs, getPairAsGR, tssGR)
 for(tadName in names(allTADs)){
 
     TAD = allTADs[[tadName]]
+    message(paste("INFO: Compute overlap with TADs from:", tadName))
 
     # co-occurance within the same domain
     cisParaGR = addWithinSubject(cisParaGR, TAD, tadName)
@@ -1164,6 +1301,11 @@ plotDF = data.frame(
         distBin=as.factor(breaks[.bincode(abs(c(distalCisPairs[,"dist"], randDistalCisPairsCombined[,"dist"]))/10^3, breaks)])
     )
     
+plotDF$HiCrawNoZero = plotDF$HiCraw
+plotDF$HiCrawNoZero[plotDF$HiCraw == 0] = NA
+plotDF$HiCnormNoZero = plotDF$HiCnorm
+plotDF$HiCnormNoZero[plotDF$HiCnorm == 0] = NA
+
 p = ggplot(plotDF, aes(x=distBin, y=HiCraw)) + scale_y_log10() +
     geom_boxplot(aes(x=distBin, colour = group), lwd=1.5) + 
     scale_color_manual(values=COL, guide_legend(title = "")) +
@@ -1243,9 +1385,49 @@ p = ggplot(plotDF, aes(x=group, y=HiCnorm, color=group)) + scale_y_log10() +
 
 # save ggplot as pdf
 ggsave(p, file=paste0(outPrefix, ".distal_pairs.Hi-C_normalized_contacts.ggboxplot.pdf"), width=3.5)
-#------------------------------------------------------------------------
 
+#------------------------------------------------------------------------
+# do the same without zero Hi-C counts
+#------------------------------------------------------------------------
+xlabels=paste0(c("Paralogs", "Sampled"), 
+    "\n n=", applyToSubset(plotDF, function(v) sum(!is.na(v)), "HiCrawNoZero", "group"), 
+    "\n med=", signif(applyToSubset(plotDF, median, "HiCrawNoZero", "group", na.rm=TRUE), 3),
+    "\n avg=", signif(applyToSubset(plotDF, mean, "HiCrawNoZero", "group", na.rm=TRUE), 3)
+    )
+ws.test = wilcox.test(plotDF[,"HiCrawNoZero"] ~ plotDF[,"group"])
+
+p = ggplot(plotDF, aes(x=group, y=HiCrawNoZero, color=group)) + scale_y_log10() +
+    geom_boxplot(lwd=1.5) + 
+    scale_color_manual(values=COL, guide_legend(title = "")) +
+    theme_bw() + theme(text = element_text(size=20), legend.position="none") + 
+    guides(fill=guide_legend(title="")) +
+    labs(y="Hi-C counts", x="", title=paste0("P = ", signif(ws.test$p.value, 3))) +
+    scale_x_discrete(labels=xlabels)
+
+# save ggplot as pdf
+ggsave(p, file=paste0(outPrefix, ".distal_pairs.Hi-C_raw_contacts_noZero.ggboxplot.pdf"), width=3.5)
+
+xlabels=paste0(c("Paralogs", "Sampled"), 
+    "\n n=", applyToSubset(plotDF, function(v) sum(!is.na(v)), "HiCnormNoZero", "group"), 
+    "\n med=", signif(applyToSubset(plotDF, median, "HiCnormNoZero", "group", na.rm=TRUE), 3),
+    "\n avg=", signif(applyToSubset(plotDF, mean, "HiCnormNoZero", "group", na.rm=TRUE), 3)
+    )
+ws.test = wilcox.test(plotDF[,"HiCnormNoZero"] ~ plotDF[,"group"])
+
+p = ggplot(plotDF, aes(x=group, y=HiCnormNoZero, color=group)) + scale_y_log10() +
+    geom_boxplot(lwd=1.5) + 
+    scale_color_manual(values=COL, guide_legend(title = "")) +
+    theme_bw() + theme(text = element_text(size=20), legend.position="none") + 
+    guides(fill=guide_legend(title="")) +
+    labs(y="Normalized Hi-C counts", x="", title=paste0("P = ", signif(ws.test$p.value, 3))) +
+    scale_x_discrete(labels=xlabels )
+
+# save ggplot as pdf
+ggsave(p, file=paste0(outPrefix, ".distal_pairs.Hi-C_normalized_contacts_noZero.ggboxplot.pdf"), width=3.5)
+
+#------------------------------------------------------------------------
 # for capture Hi-C
+#------------------------------------------------------------------------
 xlabels=paste0(c("Paralogs", "Sampled"), 
     "\n n=", applyToSubset(plotDF, function(v) sum(!is.na(v)), "captureC_raw", "group"), 
     "\n med=", signif(applyToSubset(plotDF, median, "captureC_raw", "group", na.rm=TRUE), 3),
@@ -1283,8 +1465,8 @@ p = ggplot(plotDF, aes(x=group, y=captureC_ObsExp, color=group)) + scale_y_log10
 ggsave(p, file=paste0(outPrefix, ".distal_pairs.captureC_ObsExp.ggboxplot.pdf"), width=3.5)
 
 #------------------------------------------------------------------------
-
 # plot interactions for close cis pairs (within MAX_DIST)
+#------------------------------------------------------------------------
 plotDFclose = data.frame(
         group = c(rep("paralogs", nrow(cisPairs)), rep("sampled", nrow(randCisPairsCombined))),
         captureC_raw = c(cisPairs[,"captureC_raw"], randCisPairsCombined[,"captureC_raw"]),
@@ -1336,7 +1518,6 @@ ggsave(p, file=paste0(outPrefix, ".close_pairs.captureC_ObsExp.ggboxplot.pdf"), 
 randCisPairsAll = do.call("rbind", randCisPairs)
 
 paraExpCorSummaryList=list()
-paraExpMICSummaryList=list()
 
 # iterate over all expression data sets
 for (expName in names(expDFlist)){
@@ -1346,9 +1527,6 @@ for (expName in names(expDFlist)){
     # plot distribution of correlation coefficient
     paraExpCor = cisPairs[,paste0(expName, "_expCor")]
     sampledExpCor = randCisPairsAll[,paste0(expName, "_expCor")]
-
-    paraExpMIC = cisPairs[,paste0(expName, "_MIC")]
-    sampledExpMIC = randCisPairsAll[,paste0(expName, "_MIC")]
     
     pdf(paste0(outPrefix,".sampled_genes.Expression_correlation.", expName, ".hist.pdf"))
         par(cex=1.5, lwd=2, mfrow=c(2,1))
@@ -1359,53 +1537,9 @@ for (expName in names(expDFlist)){
         hist(sampledExpCor, breaks, col=COL[2],
         main=paste0("Sampled genes co-expression (",expName,")"), xlab=xlab)    
     dev.off()
-
-    pdf(paste0(outPrefix,".sampled_genes.Expression_MIC.", expName, ".hist.pdf"))
-        par(cex=1.5, lwd=2, mfrow=c(2,1))
-        breaks = seq(0,1,length.out=51)
-        xlab = paste0("Maximal information coefficient (MIC) over n=", ncol(expDF), " tissues")
-        hist(paraExpMIC, breaks, col=COL[1],
-        main=paste0("Paralog genes (",expName,")"), xlab=xlab)
-        hist(sampledExpMIC, breaks, col=COL[2],
-        main=paste0("Sampled genes (",expName,")"), xlab=xlab)    
-    dev.off()
     
     # add vectors to summary plot list
     paraExpCorSummaryList = c(paraExpCorSummaryList, list(paraExpCor, sampledExpCor))
-    paraExpMICSummaryList = c(paraExpMICSummaryList, list(paraExpMIC, sampledExpMIC))
-    
-    # plot distribution of mutual information (MI)
-    #paraExpMI = cisPairs[,paste0(expName, "_expMI")]
-    #sampledExpMI = randCisPairsAll[,paste0(expName, "_expMI")]
-    
-#~     pdf(paste0(outPrefix,".sampled_genes.Expression_MI.", expName, ".hist.pdf"))
-#~         par(cex=1.5, lwd=2, mfrow=c(2,1))
-#~         breaks = seq(0,1,length.out=51)
-#~         xlab = paste0("Mutual information of gene expression over n=", ncol(expDF), " tissues [bits]")
-#~         hist(paraExpMI, breaks, col=COL[1],
-#~         main=paste0("Paralog genes co-expression (",expName,")"), xlab=xlab)
-#~         hist(sampledExpMI, breaks, col=COL[2],
-#~         main=paste0("Sampled genes co-expression (",expName,")"), xlab=xlab)    
-#~     dev.off()
-#~     
-#~     # add vectors to summary plot list
-#~     paraExpMISummaryList = c(paraExpMISummaryList, list(paraExpMI, sampledExpMI))
-
-    #-------------------------------------------------------------------
-    # Filter for exclusively expressed genes with an non-coexistence pattern
-    #-------------------------------------------------------------------
-    MIN_MICR2 = .25
-    MAX_R = 0
-    
-    r = cisPairs[,paste0(expName, "_expCor")]
-    mic = cisPairs[,paste0(expName, "_MIC")]
-    micr2 =  mic - r**2
-    
-    plotPairs = cisPairs[which(micr2 >= MIN_MICR2 & r <= MAX_R), ]
-
-    plotAllExp(plotPairs, expDF, tssGR,
-        paste0(outPrefix,".expression.noncoexistence.", expName, ".minMICR2_", MIN_MICR2, "_maxR_", MAX_R, ".hist.pdf"))
-
 
     #-------------------------------------------------------------------
     # Compare expression and shared enhancers
@@ -1428,7 +1562,7 @@ for (expName in names(expDFlist)){
         # test difference with wilcoxon test
         ws.test = wilcox.test(paraExpCor ~  inTADgroup)
     
-        p = ggplot(cisPairs, aes(x=inTADgroup, y=paraExpCor)) + geom_boxplot(fill=NA, aes(colour = inTADgroup), lwd=1.5) + geom_jitter(alpha=.3, size=2, aes(colour = inTADgroup)) + scale_colour_manual(values= colorRampPalette(c("gray", COL_TAD))(2), guide=FALSE) + theme_bw() + theme(text = element_text(size=20), axis.text.x = element_text(angle = 45, hjust = 1)) + labs(y="Pearson correlation coefficient", x = "", title=paste0("p = ",signif(ws.test$p.value,2)))
+        p = ggplot(cisPairs, aes(x=inTADgroup, y=paraExpCor)) + geom_boxplot(fill=NA, aes(colour = inTADgroup), lwd=1.5) + geom_jitter(alpha=.3, size=2, aes(colour = inTADgroup)) + scale_colour_manual(values= colorRampPalette(c("gray", COL_TAD[1]))(2), guide=FALSE) + theme_bw() + theme(text = element_text(size=20), axis.text.x = element_text(angle = 45, hjust = 1)) + labs(y="Pearson correlation coefficient", x = "", title=paste0("p = ",signif(ws.test$p.value,2)))
         # save ggplot as pdf
         ggsave(p, file=paste0(outPrefix,".expCor_", expName, ".by_sahred_TAD_", tadName, ".boxplot.pdf"), width=3.5, height=7)
     }
@@ -1436,22 +1570,15 @@ for (expName in names(expDFlist)){
     # plot for all cell types: 
     expPlotDF = data.frame(
         expCor = rep(paraExpCor, length(allTADs)),
-        expMIC = rep(paraExpMIC, length(allTADs)),
         withinTAD = unlist(lapply(names(allTADs), function(tadName) factor(mcols(cisParaGR)[, tadName], levels=c(TRUE, FALSE), labels=c("In same TAD", "Not in same TAD")))),
         cells = rep(factor(gsub("_", " ", names(allTADs)), gsub("_", " ", names(allTADs))) , each=length(paraExpCor))
     )
     p = ggplot(expPlotDF, aes(x=withinTAD, y=expCor, colour=withinTAD)) + geom_violin(aes(colour = withinTAD), lwd=1, alpha=.25) + geom_boxplot(aes(color=withinTAD), fill=NA, width=.25, lwd=1)  + 
-    facet_wrap(~ cells) + scale_colour_manual(values= colorRampPalette(c(COL_TAD, "gray"))(2), guide=FALSE) + theme_bw() + theme(text = element_text(size=20), axis.text.x = element_text(angle = 45, hjust = 1)) + labs(y="Pearson correlation coefficient", x = "") +  theme(legend.position="bottom")
+    facet_wrap(~ cells) + scale_colour_manual(values= colorRampPalette(c(COL_TAD[1], "gray"))(2), guide=FALSE) + theme_bw() + theme(text = element_text(size=20), axis.text.x = element_text(angle = 45, hjust = 1)) + labs(y="Pearson correlation coefficient", x = "") +  theme(legend.position="bottom")
 
     # save ggplot as pdf
     ggsave(p, file=paste0(outPrefix,".expCor_", expName, ".by_sahred_TAD.allTADs.boxplot.pdf"), w=7, h=7)
-    
-    p = ggplot(expPlotDF, aes(x=withinTAD, y=expMIC, colour=withinTAD)) + geom_violin(aes(colour = withinTAD), lwd=1, alpha=.25) + geom_boxplot(aes(color=withinTAD), fill=NA, width=.25, lwd=1)  + 
-    facet_wrap(~ cells) + scale_colour_manual(values= colorRampPalette(c(COL_TAD, "gray"))(2), guide=FALSE) + theme_bw() + theme(text = element_text(size=20), axis.text.x = element_text(angle = 45, hjust = 1)) + labs(y="Maximal information coefficient (MIC)", x = "") +  theme(legend.position="bottom")
-
-    # save ggplot as pdf
-    ggsave(p, file=paste0(outPrefix,".expMIC_", expName, ".by_sahred_TAD.allTADs.boxplot.pdf"), w=7, h=7)
-    
+        
 }
 
 # boxplot (violineplot) for all data sets
@@ -1467,23 +1594,9 @@ pdf(paste0(outPrefix,".sampled_genes.Expression_correlation.all_data.boxplot.pdf
     
 dev.off()
 
-# same for mutual information
-pdf(paste0(outPrefix,".sampled_genes.Expression_MIC.all_data.boxplot.pdf"))
-    par(cex=1.3, lwd=2, mar=c(8, 4, 1, 2))
-    boxplot(paraExpMICSummaryList, border=COL, ylab="Maximal information coefficient (MIC)", names=NA, xaxt="n")
-    
-    # add x-axis labels
-    labPos = colMeans(matrix(seq(2*nExp), nrow=2))
-    axis(1, at=labPos, labels=FALSE)
-    text(x=labPos, y=par()$usr[3]-0.1*(par()$usr[4]-par()$usr[3]),labels=names(expDFlist), srt=45, adj=1, xpd=TRUE)
-    
-dev.off()
-
 # make data.frame with additional columns indicating the groups
 paraExpCorSummaryDF <- data.frame(
                 expCor = unlist(paraExpCorSummaryList), 
-                expMIC = unlist(paraExpMICSummaryList), 
-                expMIC_R2 = unlist(paraExpMICSummaryList) - unlist(paraExpCorSummaryList)**2, 
                 dataset = rep(
                     rep(
                         paste0(gsub('_', ' ', names(expDFlist)), "\n n=", sapply(expDFlist, ncol), " tissues" )
@@ -1505,111 +1618,6 @@ pdf(paste0(outPrefix,".sampled_genes.Expression_correlation.all_data.violinplot.
     ggplot(paraExpCorSummaryDF, na.rm=TRUE, aes(x=genepairs, y = expCor, fill=genepairs)) + geom_violin(adjust = .2) + theme_bw() + labs(y="Pearson correlation coefficient", x = "", title= "Co-expression correlation over tissues") + scale_x_discrete(labels="")  + facet_grid(dataset~.) + coord_flip() + theme(legend.position = "bottom") + scale_fill_manual(values=COL) + geom_boxplot(aes(fill=NULL), width=.2, colour="black", outlier.shape = NA)+guides(fill=guide_legend(title=""))
    
 dev.off()
-
-# same for MIC
-pdf(paste0(outPrefix,".sampled_genes.Expression_MIC.all_data.violinplot.pdf"))
-    ggplot(paraExpCorSummaryDF, na.rm=TRUE, aes(x=genepairs, y = expMIC, fill=genepairs)) + geom_violin(adjust = .2) + theme_bw() + labs(y="MIC", x = "", title= "Co-expression over tissues") + scale_x_discrete(labels="")  + facet_grid(.~dataset) + theme(legend.position = "bottom") + scale_fill_manual(values=COL) + geom_boxplot(aes(fill=NULL), width=.2, colour="black", outlier.shape = NA)+guides(fill=guide_legend(title=""))
-dev.off()
-
-# same for MIC-R2
-pdf(paste0(outPrefix,".sampled_genes.Expression_MIC-R2.all_data.violinplot.pdf"))
-    ggplot(paraExpCorSummaryDF, na.rm=TRUE, aes(x=genepairs, y = expMIC_R2, fill=genepairs)) + geom_violin(adjust = .2) + theme_bw() + labs(y="MIC - R^2", x = "", title= "Co-expression over tissues") + scale_x_discrete(labels="")  + facet_grid(.~dataset) + theme(legend.position = "bottom") + scale_fill_manual(values=COL) + geom_boxplot(aes(fill=NULL), width=.2, colour="black", outlier.shape = NA)+guides(fill=guide_legend(title=""))
-dev.off()
-
-#-----------------------------------------------------------------------
-# TF motif analysis in promoters
-#-----------------------------------------------------------------------
-pdf(paste0(outPrefix,".motif_in_promoter.example.heatmap.pdf"))
-
-    simple.heatmap(as.matrix(motifTable[39:80, 1:50]), labRow=tssGR[row.names(motifTable)[39:80]]$hgnc_symbol, xlab="TF motifs", ylab="Promoters", margins=c(2,2))
-
-dev.off()
-
-# plot distribution of correlation coefficient
-paraMotifCor = cisPairs[,"motif_cor"]
-sampledMotifCor = randCisPairsAll[,"motif_cor"]
-
-paraMotifMIC = cisPairs[,"motif_MIC"]
-sampledMotifMIC = randCisPairsAll[,"motif_MIC"]
-
-pdf(paste0(outPrefix,".sampled_genes.motifs_correlation.density.pdf"))
-    par(cex=1.5, lwd=3)
-    yMax = 1.3 * max(density(paraMotifCor)$y)
-    xlab = paste0("TF motifs correlation over n=", ncol(motifTable), " TF motifs [Pearson's R]")
-    plot(density(paraMotifCor), xlim=c(-1,1), ylim=c(0,yMax), col=COL[1],
-    main="TF Motif Correlation", xlab=xlab)
-    lines(density(sampledMotifCor), col=COL[2])
-    legend("topleft", c("Paralog genes", "Sampled genes"), col=COL, lty=1)    
-dev.off()
-
-pdf(paste0(outPrefix,".sampled_genes.motifs_correlation.hist.pdf"))
-    par(cex=1.5, lwd=2, mfrow=c(2,1))
-    breaks = seq(-1,1,length.out=51)
-    xlab = paste0("TF motifs correlation over n=", ncol(motifTable), " TF motifs [Pearson's R]")
-    hist(paraMotifCor, breaks, col=COL[1],
-    main="Paralog genes", xlab=xlab)
-    hist(sampledMotifCor, breaks, col=COL[2],
-    main="Sampled genes", xlab=xlab)    
-dev.off()
-
-pdf(paste0(outPrefix,".sampled_genes.motifs_MIC.hist.pdf"))
-    par(cex=1.5, lwd=2, mfrow=c(2,1))
-    breaks = seq(0,1,length.out=51)
-    xlab = paste0("TF Motif associations over n=", ncol(motifTable), " TF motifs [MIC]")
-    hist(paraMotifMIC, breaks, col=COL[1],
-    main="Paralog genes", xlab=xlab)
-    hist(sampledMotifMIC, breaks, col=COL[2],
-    main="Sampled genes", xlab=xlab)    
-dev.off()
-
-# plot distribution of correlation coefficient 
-paraMotifCor = cisPairs[,"motif_binary_cor"]
-sampledMotifCor = randCisPairsAll[,"motif_binary_cor"]
-
-paraMotifMIC = cisPairs[,"motif_binary_MIC"]
-sampledMotifMIC = randCisPairsAll[,"motif_binary_MIC"]
-
-pdf(paste0(outPrefix,".sampled_genes.motifs_binary_correlation.density.pdf"))
-    par(cex=1.5, lwd=3)
-    yMax = 1.3 * max(density(paraMotifCor)$y)
-    xlab = paste0("TF motifs correlation over n=", ncol(motifTable), " TF motifs [Pearson's R]")
-    plot(density(paraMotifCor), xlim=c(-1,1), ylim=c(0,yMax), col=COL[1],
-    main="TF Motif Correlation", xlab=xlab)
-    lines(density(sampledMotifCor), col=COL[2])
-    legend("topleft", c("Paralog genes", "Sampled genes"), col=COL, lty=1)    
-dev.off()
-
-pdf(paste0(outPrefix,".sampled_genes.motifs_binary_MIC.density.pdf"))
-    par(cex=1.5, lwd=3)
-    yMax = 1.3 * max(density(paraMotifMIC)$y)
-    xlab = paste0("TF motifs correlation over n=", ncol(motifTableBinary), " TF motifs [MIC]")
-    plot(density(paraMotifMIC), xlim=c(0,1), ylim=c(0,yMax), col=COL[1],
-    main="TF Motif Correlation", xlab=xlab)
-    lines(density(sampledMotifMIC), col=COL[2])
-    legend("topleft", c("Paralog genes", "Sampled genes"), col=COL, lty=1)    
-dev.off()
-
-pdf(paste0(outPrefix,".sampled_genes.motifs_binary_correlation.hist.pdf"))
-    par(cex=1.5, lwd=2, mfrow=c(2,1))
-    breaks = seq(-1,1,length.out=51)
-    xlab = paste0("TF motifs correlation over n=", ncol(motifTable), " TF motifs [Pearson's R]")
-    hist(paraMotifCor, breaks, col=COL[1],
-    main="Paralog genes", xlab=xlab)
-    hist(sampledMotifCor, breaks, col=COL[2],
-    main="Sampled genes", xlab=xlab)    
-dev.off()
-
-pdf(paste0(outPrefix,".sampled_genes.motifs_binary_MIC.hist.pdf"))
-    par(cex=1.5, lwd=2, mfrow=c(2,1))
-    breaks = seq(0,1,length.out=51)
-    xlab = paste0("TF Motif associations over n=", ncol(motifTable), " TF motifs [MIC]")
-    hist(paraMotifMIC, breaks, col=COL[1],
-    main="Paralog genes", xlab=xlab)
-    hist(sampledMotifMIC, breaks, col=COL[2],
-    main="Sampled genes", xlab=xlab)    
-dev.off()
-
-
 
 #-----------------------------------------------------------------------
 # LRRC8 Gene family
@@ -1793,7 +1801,6 @@ dev.off()
 #allCisPairs
 #randPairsInCis
 
-orgStr2Name = c(mmusculus="mouse", cfamiliaris="dog")
 
 # iterate over all species:
 for (orgStr in c("mmusculus", "cfamiliaris")){
@@ -2141,83 +2148,23 @@ for (orgStr in c("mmusculus", "cfamiliaris")){
 #=======================================================================
 # Mouse paralog analysis
 #=======================================================================
-runBasicParalogAnalysis(paste0(outPrefix, ".Mouse"), paralogPairsMouse, "mmusculus_paralog_dn", tssGRmouse, speciesTADs[["mmusculus"]], tissueName="Mouse", HiClist=speciesHiC[["mmusculus"]][[1]], HiClistNorm=speciesHiC[["mmusculus"]][[2]])
+runBasicParalogAnalysis(paste0(outPrefix, ".Mouse"), paralogPairsMouse, "mmusculus_paralog_ds", tssGRmouse, speciesTADs[["mmusculus"]], tissueName="Mouse", HiClist=speciesHiC[["mmusculus"]][[1]], HiClistNorm=speciesHiC[["mmusculus"]][[2]])
 message("Finish Mouse paralog analysis!")
 
 #=======================================================================
 # Dog and dog paralog analysis
 #=======================================================================
-runBasicParalogAnalysis(paste0(outPrefix, ".Dog"), paralogPairsDog, "cfamiliaris_paralog_dn", tssGRdog, speciesTADs[["cfamiliaris"]], tissueName="Dog", HiClist=speciesHiC[["cfamiliaris"]][[1]], HiClistNorm=speciesHiC[["cfamiliaris"]][[2]])
+runBasicParalogAnalysis(paste0(outPrefix, ".Dog"), paralogPairsDog, "cfamiliaris_paralog_ds", tssGRdog, speciesTADs[["cfamiliaris"]], tissueName="Dog", HiClist=speciesHiC[["cfamiliaris"]][[1]], HiClistNorm=speciesHiC[["cfamiliaris"]][[2]])
 message("Finish Dog paralog analysis!")
 
 
 #=======================================================================
 # Best candidate picking...
 #=======================================================================
-candidates = with(cisPairs, commonEnhancer>3 & sameStrand & abs(ENCODE_cell_lines_expCor) > .6 ) & cisParaGR$stable_TADs 
-
-table(candidates) 
+#~ candidates = with(cisPairs, commonEnhancer>3 & sameStrand & abs(ENCODE_cell_lines_expCor) > .6 ) & cisParaGR$stable_TADs 
+#~ table(candidates) 
 
 #cisPairs[candidates,]
-
-#=======================================================================
-# Seq similarity of downstream paralog for pairs with only one ortholog in mouse
-#=======================================================================
-
-#mouseOrthologsInHumanALL
-#~ singleMouseOrthlogs = mouseOrthologsInHumanALL[mouseOrthologsInHumanALL$hsapiens_homolog_orthology_type == "ortholog_one2many",]
-
-#~ cisPairs[,1] = as.character(cisPairs[,1])
-#~ cisPairs[,2] = as.character(cisPairs[,2])
-
-
-
-commonOrthologs = getUniqueCommonOrthologs(cisPairs, humanToOrtho, orthoGeneCol="mmusculus_homolog_ensembl_gene")
-
-#-----------------------------------------------------------------------
-# get percent identety for both genes
-#-----------------------------------------------------------------------
-getPercentID <- function(g, o, humanToOrtho, orthoGeneCol= "mmusculus_homolog_ensembl_gene", simCol="mmusculus_homolog_perc_id_r1"){
-    
-    if( is.na(o) ){ 
-        return(NA)
-    }
-    uniqOrtholog = g == humanToOrtho[,1] & o == humanToOrtho[,orthoGeneCol]
-    
-    sim = humanToOrtho[uniqOrtholog, simCol][1]
-
-    return(sim)
-}
-
-
-cisPairs$g1_orthoSim = unlist(mapply(getPercentID, cisPairs[,1], commonOrthologs, MoreArgs=list(humanToOrtho=humanToOrtho, orthoGeneCol= "mmusculus_homolog_ensembl_gene", simCol="mmusculus_homolog_perc_id_r1")))
-cisPairs$g2_orthoSim = unlist(mapply(getPercentID, cisPairs[,2], commonOrthologs, MoreArgs=list(humanToOrtho=humanToOrtho, orthoGeneCol= "mmusculus_homolog_ensembl_gene", simCol="mmusculus_homolog_perc_id_r1")))
-
-
-cisPairs$firstUpstream = getFirstUpstream(cisPairs, tssGR)
-
-# n1 means that the upsteam paralog is more similar to the ortholog
-cisPairs$upstreamSim = ifelse(cisPairs$firstUpstream, cisPairs$g1_orthoSim ,cisPairs$g2_orthoSim) > ifelse(cisPairs$firstUpstream, cisPairs$g2_orthoSim ,cisPairs$g1_orthoSim)
-
-cisPairs$downstreamSim = ifelse(cisPairs$firstUpstream, cisPairs$g1_orthoSim ,cisPairs$g2_orthoSim) < ifelse(cisPairs$firstUpstream, cisPairs$g2_orthoSim ,cisPairs$g1_orthoSim) 
-
-cisPairs$eqSim = cisPairs$g1_orthoSim == cisPairs$g2_orthoSim
-
-sapply(list(cisPairs$eqSim, cisPairs$upstreamSim, cisPairs$downstreamSim), sum, na.rm=TRUE)
-
-addSingleOrthologs <- function(genePairs, singleOrthologs){
-    
-    gene2Ortho = singleOrthologs
-    rownames(gene2Ortho) = singleOrthologs[,2]
-
-    g1 = as.character(genePairs[,1])
-    g2 = as.character(genePairs[,2])
-
-    hasSingleOrtho = (g1 %in% singleOrthologs[,2]) & (g2 %in% singleOrthologs[,2])
-    
-    genePairs$g1_ortho_perc_id = singleOrthologs[singleOrthologs[,2]==g1]
-    
-}
 
 #=======================================================================
 # save workspace image
