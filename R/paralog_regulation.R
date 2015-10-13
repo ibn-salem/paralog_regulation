@@ -50,6 +50,13 @@
 #       - plot distal pair distance with sampled pairs with log-log qqplot
 #       - Maybe Sample according to distance of allCisPairs and divide close and distal afterwards
 
+# FEDBACK from RECOMB-CG 2015
+# - take duplication age into account, separate young and old pairs
+# - Are there paralogs with different functions? (non-coexistence expression?)
+# - For TAD vs. rearrangement correlation take length of intergenes into account.
+# - Direct correlation with syntenic blocks (use Magsimus or similar tools)
+
+
 # DISCUSSION: (after discussion with Miguel on 16.06.15
 # X leave out expression data for the first publication
 # X Question of interest: Paralogs fitting to TAD structure of genome?
@@ -74,23 +81,23 @@
 
 # ADDITIONAL ANALYSIS:
 # - repeat all analysis with all pairs, only two pairs
-# - CHECK: ratio of synonymous mutations used for pair choosing?
+# X CHECK: ratio of synonymous mutations used for pair choosing?
 # - check robustness to 1MB distance cutoff
 # - build sampled background separately for enhancer, and TAD/Hi-C 
 # - Check stable TADs, check definition. Why not significant?
-# - Significance test on expression correlation
+# X Significance test on expression correlation
 # - check linear distance conservation with correlation p-value
 # - Compute fraction of one-to-one orthologs within the same TAD from 
 #   only those human paralogs that are in the same TAD
 # - include size of mouse and dog TADs in the size boxplot of all TADs
 # - for expression analysis replace boxplot with density plot (similar to Fortin2015)
 # - Enhancer positioning pattern around pairs of paralogs (and within TADs)
-# - Evolutionary breakpoint of TADs
+# X Evolutionary breakpoint of TADs
 
 # TO FINALIZE PIPELINE FOR SUBMISSION:
 # X redesign code to run on MOGON server
-# - make all gene pair data frames as.character()
-# - use orghologMouse instead of orthologAll data set
+# X make all gene pair data frames as.character()
+# X use orghologMouse instead of orthologAll data set
 # X use seed() command for reproducible randomizations
 # - remove the following parts from the analysis (if not included in manuscript):
 #   X TF motif analysis
@@ -111,74 +118,14 @@ require(ggplot2)        # for nice plots
 require(BiocParallel)   # for parallel computing
 
 #-----------------------------------------------------------------------
-# Define some parameters
+# Load parameters from external script
 #-----------------------------------------------------------------------
-REGMAP_FILE_FANTOM5 = "data/Andersson2014/enhancer_tss_associations.bed"
-EH_FILE_FANTOM5 = "data/Andersson2014/permissive_enhancers.bed"
+# read parameter script location from command-line argument
+#~ args <- commandArgs(trailingOnly = TRUE)
+#~ PARAM_SCRIPT=args[1]
 
-
-RaoDomainFiles = c(
-    Rao_HeLa="data/Rao2014/GSE63525_HeLa_Arrowhead_domainlist.txt",
-    Rao_HUVEC="data/Rao2014/GSE63525_HUVEC_Arrowhead_domainlist.txt",
-    Rao_K562="data/Rao2014/GSE63525_K562_Arrowhead_domainlist.txt",
-    Rao_KBM7="data/Rao2014/GSE63525_KBM7_Arrowhead_domainlist.txt",
-    Rao_NHEK="data/Rao2014/GSE63525_NHEK_Arrowhead_domainlist.txt",
-    Rao_IMR90="data/Rao2014/GSE63525_IMR90_Arrowhead_domainlist.txt",
-    Rao_GM12878="data/Rao2014/GSE63525_GM12878_primary+replicate_Arrowhead_domainlist.txt"
-)
-
-DixonDomainFiles = c(
-    Dixon_hESC="data/Dixon2012/hESC.hg18.bed.hg19.bed",
-    Dixon_IMR90="data/Dixon2012/IMR90.hg18.bed.hg19.bed"
-)
-
-# Mouse and dog TADs from Rudan et al. 2015
-RudanFile = "data/Rudan2015/mmc2.xlsx"
-
-# Hi-C data
-CELL="IMR90"
-HIC_RESOLUTION=50*10^3 # 50kb
-HIC_DATA_DIR="data/Rao2014"
-
-# two colors for paralog and non-paralog genes
-COL=brewer.pal(9, "Set1")[c(1,9)]   # for paralog vs. sampled genes
-COL_RAND=c(COL[1], brewer.pal(8, "Dark2")[8])   # random genes
-COL2=brewer.pal(9, "Set1")[c(1,2)]  # for paralog vs. non-paralog
-COL_DOMAIN=brewer.pal(9, "Set3")
-COL_FAMILY=brewer.pal(8, "Dark2")
-COL_EH = brewer.pal(9, "Set1")[5]
-COL_TAD = brewer.pal(8, "Set1")[c(3,5)]
-COL_ORTHO = c(brewer.pal(12, "Paired")[5], brewer.pal(8, "Pastel2")[8])
-COL_SPECIES = brewer.pal(8, "Accent")[1:2]
-
-# use local data or downlaod data from ensemble
-USE_LOCAL = TRUE
-USE_LOCAL_HIC_CONTACTS = FALSE
-#~ N_CPUS=20
-
-N_RAND=100               # number of random permutations of whole data sets
-DENSITY_BW_ADJUST=0.1   # parameter to adjust bandwidth in density estimation for sampling
-RANDOM_SEED=13521
-
-MAX_DIST=10^6
-DISTAL_MAX_DIST=10^9
-DISTAL_MIN_DIST=10^6
-
-DIST_TH=c(10^6, 10^5)
-
-PROMOTER_UPSTREAM=800
-PROMOTER_DOWNSTREAM=200
-
-VERSION="v09"
-
-outDataPrefix = "results/paralog_regulation/EnsemblGRCh37_paralog_genes"
-outPrefix = paste0("results/paralog_regulation/", VERSION, "_maxDist_", MAX_DIST, "_nrand_", N_RAND, "/EnsemblGRCh37_paralog_genes")
-# create directory, if not exist
-dir.create(dirname(outPrefix), recursive=TRUE, showWarnings = FALSE)
-
-WORKIMAGE_FILE = paste0(outPrefix, "workspace.Rdata")
-#load(WORKIMAGE_FILE)
-#source("R/functions.genePairs.paralog_analysis.R")
+PARAM_SCRIPT="R/paralog_regulation.param.v10.R"
+source(PARAM_SCRIPT)
 
 #-----------------------------------------------------------------------
 # Options for parallel computation
@@ -201,33 +148,15 @@ source("R/functions.Hi-C.R")
 source("R/parseHiC.R")
 
 # load ensemble data sets of genes and paralog pairs
-source("R/data.ensembl.R")
+source("R/data.ensembl.R")     # load ensambl data
 source("R/data.expression.R")  # load expression data from EBI expression atlas
 source("R/data.captureHiC.R")  # load capture Hi-C data between promoters from Mifsud et al. 2015
-
 
 #-----------------------------------------------------------------------
 # make GenomicRange objects for TSS of Genes:
 #-----------------------------------------------------------------------
 tssGR = getTssGRfromENSEMBLGenes(genes, seqInfoRealChrom, colNames=c("hgnc_symbol"))
 tssGR$gene_size = genes[names(tssGR), "end_position"] - genes[names(tssGR), "start_position"]
-
-## promoterGR = promoters(tssGR, upstream=PROMOTER_UPSTREAM, downstream=PROMOTER_DOWNSTREAM)
-## export(promoterGR, con=paste0(outDataPrefix, ".promoters.bed"), format="BED")
-
-## TODO:
-## Here the matrix-scan analysis should be executed. 
-## See matrix-scan_pipeline.sh script
-##
-
-## # get motif match table:
-## matrixScanFile = paste0(outDataPrefix, ".promoters.bed.names.fa.jaspar.matrix-scan.uniquePos")
-## motifTable = parseMatrixScan(matrixScanFile, names(promoterGR))
-## motifTableBinary = motifTable
-## motifTableBinary[motifTable>0] = 1
-
-## # import motif hit table:
-## write.table(motifTable, file=paste0(matrixScanFile, ".counts.tab"), sep="\t", quote=FALSE, row.names=TRUE, col.names=NA)
 
 #-----------------------------------------------------------------------
 # Parse enhancers in correlation based maps
@@ -262,12 +191,31 @@ tssGR$linked_enhancer =  sapply(gene2ehID[names(tssGR)], length)
 
 # parse TAD data sets as list of GRanges
 RaoTADs = bplapply(RaoDomainFiles, parseDomainsRao, disjoin=FALSE, seqinfo=seqInfo)
+DixonTADs <- bplapply(DixonDomainFiles, import.bed, seqinfo=seqInfo)
+
+stableTADs <- list(
+#~     "stable_TADs_n3_f80"=getConservedTADs(RaoTADs, n=3, fraction=.8),
+#~     "stable_TADs_n3_f90"=getConservedTADs(RaoTADs, n=3, fraction=.9),
+#~     "stable_TADs_n4_f80"=getConservedTADs(RaoTADs, n=4, fraction=.8),
+    "stable_TADs"=getConservedTADs(RaoTADs, n=4, fraction=.9)
+)
+
+#~ stableTADsRes <- list(
+#~     "stable_TADs_n3_10kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=10^4), n=3),
+#~     "stable_TADs_n3_50kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=5*10^4), n=3),
+#~     "stable_TADs_n4_10kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=10^4), n=4),
+#~     "stable_TADs_n4_50kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=10^4), n=4)
+#~ )
+
 allTADs = c(
     RaoTADs,
-    bplapply(DixonDomainFiles, import.bed, seqinfo=seqInfo)
-#~     ,"stable_TADs"=getConservedTADs(RaoTADs, maxgap=10^4, n=3)
+    DixonTADs,
+    stableTADs
+#~     stableTADsRes
 )
-    
+
+message("INFO: Finshed parsing of TADs.")
+
 #~ allBoundaries = lapply(allTADs, getNonOverlappingBoundaries, min.gapwidth=1)
 
 # write all TADs to BED files:
@@ -562,135 +510,6 @@ if ( !USE_LOCAL_HIC_CONTACTS) {
 # save a work image after sampling and annotation.
 #-----------------------------------------------------------------------
 save.image(paste0(WORKIMAGE_FILE, ".sampling_and_annotation.Rdata"))
-
-
-#-----------------------------------------------------------------------
-# adjacent gene paris analysis for correlation of synteny breaks and TAD borders
-# - annotate adjacent pairs with
-#   - orthologs same chrom
-#   - orthologs adjacent
-#   - same TAD for all TADs
-#-----------------------------------------------------------------------
-adjPairs = getAdjacentPairs(tssGR)
-adjPairs = addOrthologAnnotation(adjPairs, orthologsSpeciesList[["mmusculus"]], "mmusculus", tssGRmouse, speciesTADs[["mmusculus"]], speciesHiC[["mmusculus"]][[1]], speciesHiC[["mmusculus"]][[2]] )
-adjPairs = addOrthologAnnotation(adjPairs, orthologsSpeciesList[["cfamiliaris"]], "cfamiliaris", tssGRdog, speciesTADs[["cfamiliaris"]], speciesHiC[["cfamiliaris"]][[1]], speciesHiC[["cfamiliaris"]][[2]])
-
-adjPairs[,"mmusculus_orthologs_adjacent"] = orthologsAdjacent(adjPairs, "mmusculus", orthologsSpeciesList, tssGRmouse)
-adjPairs[,"cfamiliaris_orthologs_adjacent"] = orthologsAdjacent(adjPairs, "cfamiliaris", orthologsSpeciesList, tssGRdog)
-
-adjPairsGR = getPairAsGR(adjPairs, tssGR)
-
-
-for(tadName in names(allTADs)){
-    TAD = allTADs[[tadName]]
-    # co-occurance within the same domain
-    adjPairs[,paste0(tadName, "_TAD")] = getWithinSubject(adjPairsGR, TAD)
-}
-
-# iterate over species
-pValsChromSpecies = c()
-oddsRatioChromSpecies = c()
-pValsAdjacentSpecies = c()
-oddsRatioAdjacentSpecies = c()
-
-for (orgStr in names(speciesSeqInfo)){
-    
-    orgName = orgStr2Name[orgStr]
-
-    sameChromSpecies = adjPairs[adjPairs[,paste0(orgStr, "_one2one")], paste0(orgStr, "_sameChrom")]
-    
-    orthologAdjacent = adjPairs[adjPairs[,paste0(orgStr, "_one2one")], paste0(orgStr, "_orthologs_adjacent")]
-    
-    pValsSameChrom = c()
-    oddsRatioSameChrom = c()
-    pValsAdjacent = c()
-    oddsRatioAdjacent = c()
-    
-    # iterate over TAD types and test for correlation
-    for(tadName in names(allTADs)){
-        
-        sameTAD = adjPairs[adjPairs[,paste0(orgStr, "_one2one")], paste0(tadName, "_TAD")]
-        
-        # freq matrix
-        freqMatChrom = matrix(c(
-            percentTrue(sameChromSpecies & sameTAD),
-            percentTrue(sameChromSpecies & !sameTAD),
-            percentTrue(!sameChromSpecies & sameTAD),
-            percentTrue(!sameChromSpecies & !sameTAD)
-            ), 2)
-        chiChrom = chisq.test(sameChromSpecies, sameTAD)
-        fisherChrom = fisher.test(sameChromSpecies, sameTAD)
-
-        pdf(paste0(outPrefix, ".adjacent_genes.sameChrom_", orgName, ".sameTAD_", tadName, ".pdf"))
-            par(cex=2, lwd=1.5)
-            yMax = 1.75*max(freqMatChrom)
-            bp = my.barplot(freqMatChrom, beside=TRUE, yMax=yMax, col=COL_TAD, 
-                ylab="Adjacent human gene pairs [%]", names=paste0(c("Same chr in", "Not same chr in"), "\n", orgName), main=paste("P-value =", signif(chiChrom$p.value, 3)), addValues=TRUE)
-            legend("topright", c("Same TAD", "Not same TAD"), fill=COL_TAD)
-        dev.off()
-
-        # freq matrix
-        freqMatAdj = matrix(c(
-            percentTrue(orthologAdjacent & sameTAD),
-            percentTrue(orthologAdjacent & !sameTAD),
-            percentTrue(!orthologAdjacent & sameTAD),
-            percentTrue(!orthologAdjacent & !sameTAD)
-            ), 2)
-        chiAdj = chisq.test(orthologAdjacent, sameTAD)
-        fisherAdj = fisher.test(orthologAdjacent, sameTAD)
-        pdf(paste0(outPrefix, ".adjacent_genes.adjacent_", orgName, ".sameTAD_", tadName, ".pdf"))
-            par(cex=2, lwd=1.5)
-            yMax = 1.75*max(freqMatAdj)
-            bp = my.barplot(freqMatAdj, beside=TRUE, col=COL_TAD, 
-                ylab="Adjacent human gene pairs [%]", names=paste0(c("Adjacent in", "Not adjacent in"), "\n", orgName), main=paste("P-value =", signif(chiAdj$p.value, 3)), addValues=TRUE, yMax=yMax)
-            legend("topright", c("Same TAD", "Not same TAD"), fill=COL_TAD)
-        dev.off()
-        
-        # add p-values and odds ratio to list
-        pValsSameChrom = c(pValsSameChrom, chiChrom$p.value)
-        oddsRatioSameChrom = c(oddsRatioSameChrom, fisherChrom$estimate)
-        pValsAdjacent = c(pValsAdjacent, chiAdj$p.value)
-        oddsRatioAdjacent = c(oddsRatioAdjacent, fisherAdj$estimate)
-    }
-    
-    pValsChromSpecies = rbind(pValsChromSpecies, pValsSameChrom)
-    oddsRatioChromSpecies = rbind(oddsRatioChromSpecies, oddsRatioSameChrom)
-    pValsAdjacentSpecies = rbind(pValsAdjacentSpecies, pValsAdjacent)
-    oddsRatioAdjacentSpecies = rbind(oddsRatioAdjacentSpecies, oddsRatioAdjacent)
-    
-}
-
-pdf(paste0(outPrefix, ".adjacent_genes.sameChrom_vs_TAD.oddsRatio.barplot.pdf"))
-    par(cex=1.5, lwd=1.5)
-    bp = my.barplot(oddsRatioChromSpecies, beside=TRUE, ylab="Odds ratio", names=names(allTADs), col=COL_SPECIES)
-    abline(h=1, col="red")
-    legend("topleft", orgStr2Name[names(speciesSeqInfo)], fill=COL_SPECIES)
-dev.off()
-
-pdf(paste0(outPrefix, ".adjacent_genes.sameChrom_vs_TAD.pValues.barplot.pdf"))
-    par(cex=1.5, lwd=1.5)
-    starsNotation = matrix(pValToStars(pValsChromSpecies, ""), nrow(pValsChromSpecies))
-    
-    bp = my.barplot(-log10(pValsChromSpecies), offset=0.05, beside=TRUE, ylab="-log_10 P-Value", names=names(allTADs), col=COL_SPECIES, addValues=TRUE, customValues=starsNotation, main="Re-arrengments versus TAD")
-    legend("topleft", orgStr2Name[names(speciesSeqInfo)], fill=COL_SPECIES)
-dev.off()
-
-
-pdf(paste0(outPrefix, ".adjacent_genes.adjacentOrtho_vs_TAD.oddsRatio.barplot.pdf"))
-    par(cex=1.5, lwd=1.5)
-    bp = my.barplot(oddsRatioAdjacentSpecies, beside=TRUE, ylab="Odds ratio", names=names(allTADs), col=COL_SPECIES)
-    abline(h=1, col="red")
-    legend("topleft", orgStr2Name[names(speciesSeqInfo)], fill=COL_SPECIES)
-dev.off()
-
-pdf(paste0(outPrefix, ".adjacent_genes.adjacentOrtho_vs_TAD.pValues.barplot.pdf"))
-    par(cex=1.5, lwd=1.5)
-    starsNotation = matrix(pValToStars(pValsAdjacentSpecies, ""), nrow(pValsAdjacentSpecies))
-    
-    bp = my.barplot(-log10(pValsAdjacentSpecies), offset=0.05, beside=TRUE, ylab="-log_10 P-Value", names=names(allTADs), col=COL_SPECIES, addValues=TRUE, customValues=starsNotation, main="Conserved neighbour genes vs. same TAD")
-    legend("topleft", orgStr2Name[names(speciesSeqInfo)], fill=COL_SPECIES)
-dev.off()
-
 
 #=======================================================================
 # 5.) Run analysis
@@ -994,6 +813,7 @@ pdf(paste0(outPrefix, ".hESC_TAD_size.hist.pdf"))
         main="Size distribution of hESC TADs\n (Dixon et al. 2012)",
         xlab="Domain size (kb)")
 dev.off()
+
 pdf(paste0(outPrefix, ".Rao_GM12878_TAD_size.hist.pdf"))
     par(cex=1.5, lwd=2)
     hist(width(allTADs[["Rao_GM12878"]])/10^3, col=COL_DOMAIN[2],
@@ -1002,17 +822,18 @@ pdf(paste0(outPrefix, ".Rao_GM12878_TAD_size.hist.pdf"))
 dev.off()
 
 sizeList = lapply(allTADs, function(gr) width(gr)/10^3)
+numberList = lapply(allTADs, length)
 
 pdf(paste0(outPrefix, ".Compare_domain_size.boxplot.pdf"))
     par(cex=1.3, lwd=1.5)
-    my.boxplot(sizeList, names=gsub("_", " ", names(sizeList)),
+    my.boxplot(sizeList, names=paste0(gsub("_", " ", names(sizeList)), "n=", numberList),
         main="Size distribution of TADs",
         ylab="TAD size [kb]", col=COL_DOMAIN)
 dev.off()
 
 pdf(paste0(outPrefix, ".Compare_domain_size.log10.boxplot.pdf"))
     par(cex=1.3, lwd=1.5)
-    my.boxplot(lapply(sizeList, function(x){log10(x*10^3)}), names=gsub("_", " ", names(sizeList)),
+    my.boxplot(lapply(sizeList, function(x){log10(x*10^3)}), names=paste0(gsub("_", " ", names(sizeList)), "n=", numberList),
         main="Size distribution of TADs",
         ylab="TAD size (log_10 bp)", col=COL_DOMAIN)
 dev.off()
@@ -1118,7 +939,6 @@ for ( D in DIST_TH){
         randPercentBoth = sapply(1:N_RAND, function(i) percentTrue(randInTAD[[i]] & randStrand[[i]]) ) 
         
         heights = matrix(c(paraPercent, mean(randPercent, na.rm=TRUE), paraPercentBoth, mean(randPercentBoth, na.rm=TRUE)), 2)
-        
         sdRand = c(sd(randPercent, na.rm=TRUE), sd(randPercentBoth, na.rm=TRUE))
         
         # TODO make plot nicer
@@ -1149,7 +969,7 @@ for ( D in DIST_TH){
         bp = my.barplot(heightMat, addValues=TRUE, beside=TRUE, names=names(allTADs), col=COL, yMax=1.3*max(heightMat), digits=2, ylab="Gene pairs in same TAD [%]")
         error.bar(bp, heightMat, rbind(rep(NA, length(allTADs)), sdMat), length=0.05)
 
-        add_pval_two_pairs(bp, heightMat, pvalues, offset=.15*max(heightMat), digits=1)
+        add_pval_two_pairs(bp, heightMat, pvalues, offset=.15*max(heightMat)) #, digits=1
 
         legend("topleft", c("Paralogs", "Sampled pairs"), fill=COL, bty="n")
     dev.off()
@@ -1856,34 +1676,6 @@ for (orgStr in c("mmusculus", "cfamiliaris")){
             main="Distance between orthologs of random gene pairs", xlab="Distance (kb)")    
     dev.off()
     
-#~ 
-#~     # correlate linear distances of random genes in human with mouse orthologs
-#~     pdf(paste0(outPrefix, ".paralogPairs_orthologs_rand_dist_", orgName, ".dotplot.pdf"))
-#~ 
-#~         humanDist = abs(unlist(
-#~             lapply(randPairsInCis, function(d){
-#~                 subSet = (abs(d[, orthoDistStr]) <= MAX_DIST) & (abs(d[,"dist"])<= MAX_DIST)
-#~                 d[, orthoDistStr]
-#~                 })
-#~             )) / 10^3
-#~ 
-#~         maxDistSubset = abs(allCisPairs[, "dist"]) <= MAX_DIST & abs(allCisPairs[, paste0(orgStr, "_dist")]) <= MAX_DIST 
-#~ 
-#~         humanDist = abs(allCisPairs[maxDistSubset, "dist"]) #/10^3
-#~         orthoDist = abs(allCisPairs[maxDistSubset, paste0(orgStr, "_dist")]) #/10^3
-#~ 
-#~         r = cor(humanDist[!is.na(orthoDist)], orthoDist[!is.na(orthoDist)])
-#~         p = cor.test(humanDist[!is.na(orthoDist)], orthoDist[!is.na(orthoDist)])$p.value
-#~         
-#~         par(lwd=2, cex=1.5)
-#~         plot(log10(humanDist),  log10(orthoDist),
-#~             xlim=c(3, log10(MAX_DIST)), ylim=c(3, log10(MAX_DIST)),
-#~             main=paste("Distance in human and", orgName),
-#~             xlab="log_10 distance in human", ylab=paste("log_10 distance in", orgName) ) #, col=rgb(0,0,0,.5)
-#~         legend("topleft", paste("R =", signif(r, 3)))
-#~          
-#~     dev.off()
-
     # compare distance to dist-wighted sampled pairs    
     orthoDistStr = paste0(orgStr, "_dist")
     
@@ -1990,24 +1782,46 @@ for (orgStr in c("mmusculus", "cfamiliaris")){
     # co-occurances in the same TAD in other organism as fraction of only those that are also in same TAD in human 
     
     # iterate over all TAD types
-#~     for (tadName in names(allTADs)){
-#~ 
-#~         paraInTAD <- mcols(cisParaGR)[, tadName]
-#~         randInTAD = lapply(cisRandGR, function(gr) mcols(gr)[, tadName])
-#~ 
-#~         humanAndOrthoInTAD = cisPairs[cisPairs[,paste0(orgStr, "_one2one")] & paraInTAD, paste0(orgStr, "_TAD")]
-#~         humanAndRandInTAD = lapply(1:length(randCisPairs), function(i){ 
-#~             gP = randCisPairs[[i]]
-#~             gP[gP[,paste0(orgStr, "_one2one")] & randInTAD[[i]], paste0(orgStr, "_TAD")]
-#~             })
-#~ 
-#~         # create contingency table and run Fisher test
-#~         contab = rbind(
-#~             para=table(humanAndOrthoInTAD),  
-#~             rand=table(unlist(humanAndRandInTAD))
-#~         )
-#~         fs.test = fisher.test(contab)
-#~     }
+    for (tadName in names(allTADs)){
+
+        paraInTAD <- mcols(cisParaGR)[, tadName]
+        randInTAD = lapply(cisRandGR, function(gr) mcols(gr)[, tadName])
+
+        humanAndOrthoInTAD = cisPairs[cisPairs[,paste0(orgStr, "_one2one")] & paraInTAD, paste0(orgStr, "_TAD")]
+        humanAndRandInTAD = lapply(1:length(randCisPairs), function(i){ 
+            gP = randCisPairs[[i]]
+            gP[gP[,paste0(orgStr, "_one2one")] & randInTAD[[i]], paste0(orgStr, "_TAD")]
+            })
+
+        # create contingency table and run Fisher test
+        contab = rbind(
+            para=table(humanAndOrthoInTAD),  
+            rand=table(unlist(humanAndRandInTAD))
+        )
+        fs.test = fisher.test(contab)
+
+        pdf(paste0(outPrefix, ".paralogPairs_orthologs_inSameTAD", orgName, ".from_", tadName,".barplot.pdf"), width=3.5)
+
+            paraPercent = percentTrue(humanAndOrthoInTAD)
+            randPercent = sapply(humanAndRandInTAD, percentTrue)        
+            height = c(paraPercent , mean(randPercent))
+    
+            par(lwd=2, cex=1.5)
+            bp = my.barplot(height, yMax=1.4*max(height),
+                names=c("Paralog pairs\n", "Sampled pairs\n"), 
+                addValues=TRUE, col=COL_ORTHO,
+                main=paste("One-to-one \n orthologs\n with conserved TAD\n in", orgName), 
+                ylab="Conserved shared TAD [%]")        
+            error.bar(bp,height, c(NA, sd(randPercent)))
+    
+            # pvalue matrix for only two group comparision
+            pval_mat = matrix(c(NA, signif(fs.test$p.value, 3)), 1)
+            add_pval_all_allPairs(bp, ymax=1.1*max(height)+sd(randPercent), pval_mat)
+            
+        dev.off()
+
+
+    }
         
     
     #-------------------------------------------------------------------

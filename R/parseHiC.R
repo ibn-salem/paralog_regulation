@@ -579,23 +579,4 @@ conservedBoundaries <- function(boundaryList, min.gapwidth=1){
     return(redBoundaries)
 }
 
-#-----------------------------------------------------------------------
-# get conserved TADs
-#-----------------------------------------------------------------------
-getConservedTADs <- function(TADList, maxgap=10^4, n=3){
-    
-    # make GRange object of all TADs in all cell types
-    allTADs = unlist(GRangesList(TADList))
-        
-    # count for each TAD the number TADs from all data sets that overlap it
-    counts = countOverlaps(allTADs, allTADs, type="equal", maxgap=maxgap)
-    
-    # filter for those TADs that have >= n overlaps with other TADs
-    consTADs = allTADs[counts >= n]
-    
-    # reduce TADs to not have overlapping duplicates
-    consTADs = reduce(consTADs, min.gapwidth=maxgap+1)
-
-    return(consTADs)
-}
 

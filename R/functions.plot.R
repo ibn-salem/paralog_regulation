@@ -165,7 +165,11 @@ my.barplot <- function(values, offset=0.1, beside=TRUE, addValues=FALSE, customV
     text(xpos , yTextPos, srt = srt, adj=adj, labels = names, xpd = TRUE)
     
     if (is.numeric(customValues)){
-        valueLabels = signif(customValues, digits)
+        if (digits){
+            valueLabels = signif(customValues, digits)
+        }else{
+            valueLabels = customValues
+        }
     }else{
         valueLabels = customValues
     }

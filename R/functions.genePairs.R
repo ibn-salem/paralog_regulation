@@ -742,7 +742,7 @@ pairNotNA <- function(genePairs){
 #-----------------------------------------------------------------------
 # add information of the location of one-two-one orthologs of the gene paris
 #-----------------------------------------------------------------------
-addOrthologAnnotation <- function(genePairs, orthologsAll, orgStr, tssGR, TAD, HiClist, HiClistNorm, inParallel=TRUE){
+addOrthologAnnotation <- function(genePairs, orthologsAll, orgStr, tssGR, TAD=NULL, HiClist=NULL, HiClistNorm=NULL, inParallel=TRUE){
 
     # get orthologs pairs
     orthoPairs = getOrthologs(genePairs, orthologsAll, orgStr, tssGR)
@@ -761,17 +761,20 @@ addOrthologAnnotation <- function(genePairs, orthologsAll, orgStr, tssGR, TAD, H
     genePairs[hasOne2one,  paste0(orgStr, "_dist")] =  orthologsDist
     
     # add co-occurances in same TAD
-    orthoPairsGR = getPairAsGR(orthoPairs[hasOne2one,], tssGR)
-    tadColName = paste0(orgStr, "_TAD")
-    orthoPairsGR = addWithinSubject(orthoPairsGR, TAD, tadColName)
-    genePairs[hasOne2one, tadColName] = mcols(orthoPairsGR)[, tadColName]
+    if (!is.null(TAD)){
+        orthoPairsGR = getPairAsGR(orthoPairs[hasOne2one,], tssGR)
+        tadColName = paste0(orgStr, "_TAD")
+        orthoPairsGR = addWithinSubject(orthoPairsGR, TAD, tadColName)
+        genePairs[hasOne2one, tadColName] = mcols(orthoPairsGR)[, tadColName]
+    }
     
     # add Hi-C counts
-    subOnSameChrom = which(genePairs[,paste0(orgStr, "_sameChrom")])
-    
-    genePairs[subOnSameChrom, paste0(orgStr, "_HiC")] = addHiCfreq(orthoPairs[subOnSameChrom,], tssGR, HiClist, label="rawHiC", inParallel=inParallel)$rawHiC
-    genePairs[subOnSameChrom, paste0(orgStr, "_HiCnorm")] = addHiCfreq(orthoPairs[subOnSameChrom,], tssGR, HiClistNorm, label="HiCnorm", inParallel=inParallel)$HiCnorm
-    
+    if (!is.null(HiClist) && !is.null(HiClistNorm)){    
+        subOnSameChrom = which(genePairs[,paste0(orgStr, "_sameChrom")])
+        
+        genePairs[subOnSameChrom, paste0(orgStr, "_HiC")] = addHiCfreq(orthoPairs[subOnSameChrom,], tssGR, HiClist, label="rawHiC", inParallel=inParallel)$rawHiC
+        genePairs[subOnSameChrom, paste0(orgStr, "_HiCnorm")] = addHiCfreq(orthoPairs[subOnSameChrom,], tssGR, HiClistNorm, label="HiCnorm", inParallel=inParallel)$HiCnorm
+    }
     
     return(genePairs)
 }
