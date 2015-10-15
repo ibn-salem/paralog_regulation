@@ -87,28 +87,6 @@ parseFANTOM5RegMap <- function(regMapFile, allGenes, allEnhancers, seqInfo){
 #ehGRFANTOM=fantomData[["ehGR"]]
 
 #-----------------------------------------------------------------------
-# create a Grange object for uniue TSS
-#-----------------------------------------------------------------------
-getTssFromRegMap <- function(regMap, genesGR, seqInfo, uniqueCol=1, tssCol="transcript_start"){
-    
-    # get a unique subset by ENSEMBL ID (TODO: try TSS location)
-    uniqGenes = unique(regMap[,uniqueCol])
-    uniqGenes = uniqGenes[uniqGenes %in% names(genesGR)]
-    tss = mcols(genesGR[uniqGenes])[, tssCol]
-    
-    tssGR = GRanges(
-        seqnames(genesGR[uniqGenes]),
-        IRanges(tss, tss),
-        strand(genesGR[uniqGenes]),
-        names=uniqGenes,
-        seqinfo=seqInfo
-        )
-    names(tssGR) = uniqGenes
-    
-    return(tssGR)
-
-}
-#-----------------------------------------------------------------------
 # Get the locus string chr:start-end form a GRanges object
 #-----------------------------------------------------------------------
 getLocStr <- function(gr, substractOneFromStart=FALSE){

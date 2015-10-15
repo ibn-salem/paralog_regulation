@@ -13,7 +13,8 @@ require(biomaRt)        # to retrieve human paralogs from Ensembl
 require(plyr)           # count() function
 
 # load custom scripts
-source("R/functions.GRanges.R")
+# require the following script to be loaded already:
+#~ source("R/functions.GRanges.R")
 
 #=======================================================================
 # parameters and input data files
@@ -44,17 +45,16 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
 
     # define database and choose the human gene dataset
     # use last ensembl VERSION_DATA_ENSEMBL corresponding to human assembly GRCh37 (ensembl75) 
-    ensemblGRCh37 <- useMart(host="grch37.ensembl.org", biomart="ENSEMBL_MART_ENSEMBL",dataset="hsapiens_gene_ensembl", verbose=TRUE)
+    ensemblGRCh37 <- useMart(host="grch37.ensembl.org", biomart="ENSEMBL_MART_ENSEMBL",dataset="hsapiens_gene_ensembl", verbose=FALSE)
     
     #-------------------------------------------------------------------
     # get all genes with annotation:
     #-------------------------------------------------------------------
-    geneAttributes = c("ensembl_gene_id", "hgnc_symbol", "chromosome_name", "transcript_start", "start_position", "end_position", "strand", "status", "gene_biotype")
+    geneAttributes = c("ensembl_gene_id", "hgnc_symbol", "chromosome_name", "start_position", "end_position", "strand", "status", "gene_biotype")
     geneFilters="chromosome_name"
     # read "normal" human chromosome names (without fixes and patches)
     geneValues=c(1:22, "X", "Y")
     allGenes = getBM(attributes=geneAttributes, mart=ensemblGRCh37, filters=geneFilters, values=geneValues)
-    #allGenes = getBM(attributes=geneAttributes, mart=ensemblGRCh37)
     
     # save or load downloaded data 
     save(allGenes, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.allGenes.RData"))
@@ -125,7 +125,7 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
 
     # get all genes with annotation:
     #-------------------------------------------------------------------
-    MouseGeneAttributes = c("ensembl_gene_id", "external_gene_name", "chromosome_name", "transcript_start", "start_position", "end_position", "strand", "status", "gene_biotype")
+    MouseGeneAttributes = c("ensembl_gene_id", "external_gene_name", "chromosome_name", "start_position", "end_position", "strand", "status", "gene_biotype")
 
     # read "normal" human chromosome names (without fixes and patches)
     allMouseGenes = getBM(attributes=MouseGeneAttributes, mart=ensemblMouse, filters="chromosome_name", values=c(1:19, "X", "Y"))
@@ -155,7 +155,7 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
 
     # get all genes with annotation:
     #-------------------------------------------------------------------
-    DogGeneAttributes = c("ensembl_gene_id", "external_gene_name", "chromosome_name", "transcript_start", "start_position", "end_position", "strand", "status", "gene_biotype")
+    DogGeneAttributes = c("ensembl_gene_id", "external_gene_name", "chromosome_name", "start_position", "end_position", "strand", "status", "gene_biotype")
 
     # read "normal" human chromosome names (without fixes and patches)
     allDogGenes = getBM(attributes=DogGeneAttributes, mart=ensemblDog, filters="chromosome_name", values=c(1:38, "X", "Y"))
@@ -218,6 +218,11 @@ genesGR = getGenesGR(genes, seqInfo)
 # make GRanges object for all genes including non-coding
 knownGenes = allGenes[allGenes$status=="KNOWN",]
 allGenesGR = getGenesGR(knownGenes[!duplicated(knownGenes$ensembl_gene_id),], seqInfo)
+
+# make GenomicRange objects for TSS of Genes:
+tssGR = getTssGRfromENSEMBLGenes(genes, seqInfoRealChrom, colNames=c("hgnc_symbol"))
+tssGR$gene_size = genes[names(tssGR), "end_position"] - genes[names(tssGR), "start_position"]
+
 
 #-----------------------------------------------------------------------
 # Convert Mouse and Dog genes to GRanges

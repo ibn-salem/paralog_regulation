@@ -29,7 +29,7 @@ parseSeqInfo <- function(chromFile, genome="hg19", header=TRUE, filterForReal=FA
 #-----------------------------------------------------------------------
 # make GRange object from downloaded ENSEMBLE table of genes
 #-----------------------------------------------------------------------
-getGenesGR <- function(genes, seqInfo, annotCols=c("hgnc_symbol", "transcript_start", "status", "gene_biotype")){
+getGenesGR <- function(genes, seqInfo, annotCols=c("hgnc_symbol", "status", "gene_biotype")){
     gr = GRanges(
         paste0("chr", genes$chromosome_name),
         IRanges(genes$start_position, genes$end_position),
@@ -46,16 +46,20 @@ getGenesGR <- function(genes, seqInfo, annotCols=c("hgnc_symbol", "transcript_st
 #-----------------------------------------------------------------------
 # create a Grange object for uniue TSS
 #-----------------------------------------------------------------------
-getTssGRfromENSEMBLGenes <- function(genes, seqInfo, colNames=c("hgnc_symbol", "transcript_start", "status", "gene_biotype")){
+getTssGRfromENSEMBLGenes <- function(genes, seqInfo, colNames=c("hgnc_symbol", "status", "gene_biotype")){
     
-    # get a unique subset by ENSEMBL ID (TODO: try TSS location)
-    tss = genes[, "transcript_start"]
+    if (length(unique(genes$ensembl_gene_id)) != length(genes$ensembl_gene_id)){
+        message("WARNING: ENSG IDs are not unique!")
+    }
+    
+    # get TSS as start of the gene if on + strand and end of the gene else 
+    onPosStrand <- genes$strand == 1
+    tss = ifelse(onPosStrand, genes[, "start_position"], genes[, "end_position"])
 
     gr = GRanges(
         paste0("chr", genes$chromosome_name),
         IRanges(tss, tss),
-        strand = ifelse(genes$strand == 1, '+', '-'), 
-        names = genes$ensembl_gene_id, 
+        strand = ifelse(onPosStrand, '+', '-'), 
         seqinfo=seqInfo
         )
     names(gr) = genes$ensembl_gene_id
