@@ -151,7 +151,7 @@ binsAroundTADboundaries <- function(TAD, windowSize=20*10^3, nbins=20){
     leftBoundary = 1:length(TAD)
     
     # flip the bin order in left TAD boundary Region to have always the part inside TAD on the left hand-side
-    bins[leftBoundary] = endoapply(bins[leftBoundary], rev)
+    bins[leftBoundary] = GRangesList(lapply(bins[leftBoundary], rev))
     
     return(bins)
     

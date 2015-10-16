@@ -348,6 +348,12 @@ mkdir -p Lemaitre2009
 wget -P Lemaitre2009 http://www.biomedcentral.com/content/supplementary/1471-2164-10-335-s2.txt
 
 #=======================================================================
+# Pseudo genes
+#=======================================================================
+# copy pseudo gene data manually to data/PseudoGenes
+
+
+#=======================================================================
 # ChIP-exo data for CTCF by Rhee and Pugh 2012 (mapped and by Starick and Ibn-Salem et al. 2015)
 #=======================================================================
 #mkdir -p Rhee2012 

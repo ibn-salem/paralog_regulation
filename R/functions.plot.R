@@ -303,11 +303,11 @@ add_pval_all_allPairs <- function(xpos, ymax, pval_mat, offset_fac=.125, min_pva
 #-----------------------------------------------------------------------
 # plot data around boundary
 #-----------------------------------------------------------------------
-plotCountsAroundBoundaries <- function(meanCount, outFile, windowSize=2*10^5, nbins=20, col="gray", main="", ylab="Average counts", cex=1.5, lwd=3, ...){
-    pdf(outFile)
+plotCountsAroundBoundaries <- function(meanCount, outFile, windowSize=2*10^5, nbins=20, col="gray", main="", ylab="Average counts", cex=1.5, lwd=3, type="o", pch=20, ...){
+    cairo_pdf(outFile)
 
         par(cex=cex, lwd=lwd)
-        plot(meanCount, type="o", pch=20, col=col, xaxt = "n", 
+        plot(meanCount, type=type, pch=pch, col=col, xaxt = "n", 
            ylab=ylab, xlab="", main=main, ...)
         
         xlab = c(-.5, -.25, 0, .25, .5) * windowSize / 10^3
@@ -330,8 +330,8 @@ plotCountsAroundBoundaries <- function(meanCount, outFile, windowSize=2*10^5, nb
 #-----------------------------------------------------------------------
 # plot multiple count data around boundary
 #-----------------------------------------------------------------------
-plotMultipleCountsAroundBoundaries <- function(countList, outFile, windowSize=2*10^5, nbins=20, cols=gray.colors, main="", ylab="Average counts", cex=1.5, lwd=3, pch=20, ...){
-    pdf(outFile)
+plotMultipleCountsAroundBoundaries <- function(countList, outFile, windowSize=2*10^5, nbins=20, cols=gray.colors, main="", ylab="Average counts", cex=1.5, lwd=3, pch=20, type="o", ...){
+    cairo_pdf(outFile)
         
         ymax = max(sapply(countList, max))
         ymin = min(sapply(countList, min))
@@ -343,7 +343,7 @@ plotMultipleCountsAroundBoundaries <- function(countList, outFile, windowSize=2*
         # add data to empty plot
         for (i in 1:length(countList)){
             
-            lines(countList[[i]], type="o", col=regCols[i], ...)
+            lines(countList[[i]], type=type, col=regCols[i], ...)
         
         }
 
@@ -403,8 +403,8 @@ plotStrandedCountsAroundBoundaries <- function(strandList, outFile, windowSize=2
 #-----------------------------------------------------------------------
 # plot counts in Bins of relative size along window around TAD
 #-----------------------------------------------------------------------
-plotCountsAroundTADwindow <- function(meanCount, outFile, errorCount=NULL, nbins=20, col="darkgray", main="", ylab="Average counts", cex=1.5, lwd=3, ...){
-    pdf(outFile)
+plotCountsAroundTADwindow <- function(meanCount, outFile, errorCount=NULL, nbins=20, col="darkgray", main="", ylab="Average counts", cex=1.5, lwd=3, pch=20, type="o", ...){
+    cairo_pdf(outFile)
 
         par(cex=cex, lwd=lwd)
         if (!is.null(errorCount)){
@@ -413,7 +413,7 @@ plotCountsAroundTADwindow <- function(meanCount, outFile, errorCount=NULL, nbins
             valueRange = range(meanCount)
         }
         
-        plot(meanCount, type="n", xaxt = "n", ylim=valueRange, pch=20, xaxt = "n", ylab=ylab, xlab="", main=main, ...)
+        plot(meanCount, type="n", xaxt = "n", ylim=valueRange, pch=pch, xaxt = "n", ylab=ylab, xlab="", main=main, ...)
         
         xlab = c("-50%", "start", "TAD", "end", "+50%")
         xlabAT = seq(0,nbins, nbins/4)+.5
@@ -424,7 +424,7 @@ plotCountsAroundTADwindow <- function(meanCount, outFile, errorCount=NULL, nbins
             addPolygon(1:nbins, meanCount, errorCount, col="gray")
         }
         
-        lines(meanCount, type="o", pch=20, col=col)
+        lines(meanCount, type=type, pch=pch, col=col)
         
         par(xpd=TRUE)
         yMin = valueRange[1] - .06 * (valueRange[2] - valueRange[1])
