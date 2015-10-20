@@ -45,6 +45,8 @@ COL_PAIRED_2 = COL_PAIRED[seq(2,12,2)]
 
 COL_TEST_CTL = brewer.pal(9, "Set1")[c(1,9)]   # for test vs. control comp.
 COL_DARK2 = brewer.pal(8, "Dark2")
+COL_STRAND = brewer.pal(8, "Pastel1")[2:1]
+COL_DOMAIN=brewer.pal(12, "Set3")
 
 N_BINS=4
 N_BIN_LIST=c(4, 40)

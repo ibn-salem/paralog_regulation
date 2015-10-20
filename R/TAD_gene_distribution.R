@@ -44,15 +44,20 @@ source("R/data.ensembl.R")
 #=======================================================================
 
 # parse TAD data sets as list of GRanges
-allTADs = lapply(RaoDomainFiles, parseDomainsRao, disjoin=FALSE, seqinfo=seqInfo)
+RaoTADs = lapply(RaoDomainFiles, parseDomainsRao, disjoin=FALSE, seqinfo=seqInfo)
 
-TAD = allTADs[["Rao_GM12878"]]
-selfOverlap <- countOverlaps(TAD, TAD)
+selfOverlap <- countOverlaps(RaoTADs[["Rao_GM12878"]], RaoTADs[["Rao_GM12878"]])
 
+allTADs <- c(
+    RaoTADs, 
+    list(
+        "GM12878_nonOverlapping"=RaoTADs[["Rao_GM12878"]][selfOverlap == 1],
+        "Stable"=getConservedTADs(RaoTADs, n=4, fraction=.9)
+    )
+)
 
-allTADs <- c(allTADs, list("Rao_GM12878_nonOverlapping"=TAD[selfOverlap == 1]))
-
-countOverlaps(TAD, TAD)
+# remove "Rao_" prefix from list names
+names(allTADs) <- gsub("Rao_", "", names(allTADs))
 
 parsePsg <- function(inFile){
     
@@ -142,16 +147,161 @@ write.table(RegStats, paste0(outPrefix, ".geneTypeTssList_statistics.csv"), sep=
 # Divide TADs and surrounding regions into bins and compute coverage and score along TAD body
 #=======================================================================
 
-# iterate over bin numbers:
 
+
+#-----------------------------------------------------------------------
+# Counts the number of overlaps of qurey regions separated by + and - strand 
+# in first and second half of  the target regions
+# return summed counts in the form (firsthalf_+ firsthalf_- secondHalf_+ secondHalf-) for each region type in the input region list
+#-----------------------------------------------------------------------
+getStrandedCountsPerHalf <- function(TAD, geneTypeTssList){
+
+    # convert regions into GRanges list separted for plus and minus strand
+    grl <- GRangesList(lapply(geneTypeTssList, function(gr){
+        mcols(gr) <- NULL
+        return(gr)}))
+    grlPos <- grl[strand(grl) == "+"]
+    grlNeg <- grl[strand(grl) == "-"]
+    
+    # divide TAD in two halfs (bins)
+    TADbins <- tile(TAD, 2)
+    TADbinsList = transposeBinList(TADbins, 2)
+    
+    # count the number of regions separated by halfs of TADs and strand of gene
+    counts <- as.vector(rbind(
+        sapply(grlPos, function(gr) sum(countOverlaps(gr, TADbinsList[[1]])) ),
+        sapply(grlNeg, function(gr) sum(countOverlaps(gr, TADbinsList[[1]])) ),
+        sapply(grlPos, function(gr) sum(countOverlaps(gr, TADbinsList[[2]])) ),
+        sapply(grlNeg, function(gr) sum(countOverlaps(gr, TADbinsList[[2]])) )
+    ))
+}
+
+#~ sapply(allTADs, function(tadName){
+#~ counts <- sapply(c("Rao_GM12878_nonOverlapping"), getStrandedCountsPerHalf, geneTypeTssList)
+counts <- sapply(allTADs, getStrandedCountsPerHalf, geneTypeTssList)
+
+nGenes <- apply(counts, 2, function(v){
+    rep(tapply(v, (seq_along(v)-1) %/% 4, sum), each=4)
+    })
+
+percents <- counts / nGenes * 100 
+
+
+
+nGenesTotal <- sapply(geneTypeTssList, length)
+    
+
+nTAD <- length(allTADs)
+nGeneType <- length(geneTypeTssList)
+nBin <- 2
+nStrand <- 2
+
+
+geneTypeFactor <- factor(names(geneTypeTssList), names(geneTypeTssList), labels=paste0(names(geneTypeTssList), "\nn = ", nGenesTotal))
+
+
+
+countDF <- data.frame(
+    "overlaps"=as.vector(counts),
+    "nGenes"=as.vector(nGenes),
+    "percent"=as.vector(percents),
+    "TAD"=rep(factor(names(allTADs), names(allTADs)), each=nGeneType*nBin*nStrand),
+    "GeneType"=rep(rep(geneTypeFactor, each=nBin*nStrand), nTAD),
+    "Half"=rep(rep(factor(c("1st", "2nd")), each=2), nTAD*nGeneType),
+    "Strand"=rep(factor(c("+", "-"), c("+", "-")), nTAD*nGeneType*nBin)
+)
+
+# get fisher test p-values and odds ratios:
+# iterate over pairs of conditions:
+pVals <- sapply(geneTypeFactor, function(geneType){
+    sapply(names(allTADs), function(tad){
+        fisher.test(
+            matrix(countDF[countDF$GeneType == geneType & countDF$TAD==tad, "overlaps"], 2)
+        )$p.value
+    })
+})
+
+ors <- sapply(geneTypeFactor, function(geneType){
+    sapply(names(allTADs), function(tad){
+        fisher.test(
+            matrix(countDF[countDF$GeneType == geneType & countDF$TAD==tad, "overlaps"], 2)
+        )$estimate
+    })
+})
+
+# make data frame for plot annotations
+annotDF <- data.frame(
+    pVals=as.vector(pVals),
+    nGenes=as.vector(nGenes)[seq(nrow(nGenes)) %% 4 == 1],
+    ors=as.vector(ors),
+    percent=rep(yMax, nTAD*nGeneType),
+    TAD=rep(factor(names(allTADs), names(allTADs)), nGeneType),
+    GeneType=rep(geneTypeFactor, each=nTAD),
+    Half=rep(factor("1st", c("1st", "2nd")), nTAD*nGeneType),
+    Strand=rep(factor("-", c("+", "-")), nTAD*nGeneType)
+)
+
+
+yMax = max(countDF$percent)
+
+
+pdf(paste0(outPrefix, ".Genes_in_TAD_half.stranded.counts.barplot.pdf"), w=7, h=7)
+    
+    ggplot(countDF, aes(x=Half, y=overlaps, fill=Strand)) + geom_bar(position="dodge",stat="identity") +  
+    facet_grid(GeneType~TAD, scales="free_y") +
+    theme_bw() + scale_fill_manual(values=COL_STRAND) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    geom_text(aes(label=overlaps), position=position_dodge(width=1), hjust=+1, vjust=0.5, size=3, angle=90) +
+    labs(y="Overlaps", x="TAD half")
+dev.off()
+
+
+pdf(paste0(outPrefix, ".Genes_in_TAD_half.stranded.percent.barplot.pdf"), w=7, h=7)
+    
+    ggplot(countDF, aes(x=Half, y=percent, fill=Strand)) + geom_bar(position="dodge",stat="identity") +  
+    facet_grid(GeneType~TAD) +
+    theme_bw() + scale_fill_manual(values=COL_STRAND) + ylim(0, 1.4*yMax) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    geom_text(aes(label=signif(percent, 3)), position=position_dodge(width=1), hjust=+1, vjust=0.5, size=3, angle=90) +
+    geom_text(data=annotDF, aes(x=1.5, y=1.3*yMax, label=paste0("OR=", signif(ors, 2))), size=2.5 ) +
+    geom_text(data=annotDF, aes(x=1.5, y=1.1*yMax, label=paste0("p=", signif(pVals, 2))), size=2.5) + 
+    geom_text(data=annotDF, aes(x=1.5, y=.9*yMax, label=paste0("n=", nGenes)), size=2.5) + 
+    labs(y="% overlaps", x="TAD half")
+dev.off()
+
+pdf(paste0(outPrefix, ".Genes_in_TAD_half.stranded.oddsRatio.barplot.pdf"), 14, 7)
+    par(cex=1.25, lwd=1.5)
+    starsNotation = matrix(pValToStars(pVals, ""), nrow(pVals))
+
+    bp = my.barplot(ors, beside=TRUE, ylab="Odds ratio", names=geneTypeFactor, addValues=TRUE, customValues=starsNotation, col=COL_DOMAIN[seq(length(allTADs))])
+    abline(h=1, col="red")
+    legend("topleft", names(allTADs), fill=COL_DOMAIN[seq(length(allTADs))])
+dev.off()
+
+
+
+pdf(paste0(outPrefix, ".Genes_in_TAD_half.stranded.pValues.barplot.pdf"))
+    par(cex=1, lwd=1.5)
+    starsNotation = matrix(pValToStars(pVals, ""), nrow(pVals))
+    
+    bp = my.barplot(-log10(pVals), offset=0.05, beside=TRUE, ylab="-log_10 P-Value", names=geneTypeFactor, col=COL_DOMAIN[seq(length(allTADs))], addValues=TRUE, customValues=starsNotation, digits=0, main="Sense vs. TAD half")
+    legend("topleft", names(allTADs), fill=COL_DOMAIN[seq(length(allTADs))])
+dev.off()
+
+    
+    
+
+
+# iterate over bin numbers:
 for (nBin in N_BIN_LIST){
     
     # nBin=40
-
+    summaryTab = data.frame()
+        
     # Iterate over each set of TADs
-    #~ for (TADname in names(allTADs)) {
+    for (TADname in names(allTADs)) {
 #~     for (TADname in c("Rao_GM12878")) {
-    for (TADname in c("Rao_GM12878_nonOverlapping")) {
+#~     for (TADname in c("Rao_GM12878_nonOverlapping", "Rao_GM12878")) {
         
         #TADname = "Rao_GM12878"
         TAD = allTADs[[TADname]]
@@ -186,7 +336,7 @@ for (nBin in N_BIN_LIST){
         regInBinSum = rbind()
         regInBinSumPlus = rbind()
         regInBinSumMinus = rbind()
-        
+
         for (typeName in names(geneTypeTssList)){
             
             regType = geneTypeTssList[[typeName]]
@@ -232,7 +382,9 @@ for (nBin in N_BIN_LIST){
                 regInBinSum = rbind(regInBinSum, sumCount)
                 regInBinSumPlus = rbind(regInBinSumPlus, sumCountPlus)
                 regInBinSumMinus = rbind(regInBinSumMinus, sumCountMinus)
-                
+                summaryTab = rbind(summaryTab, c(sum(sumCountPlus[firstHalfBins]), sum(sumCountPlus[secondHalfBins]), "+", regName, TADname))
+                summaryTab = rbind(summaryTab, c(sum(sumCountMinus[firstHalfBins]), sum(sumCountMinus[secondHalfBins]), "-", regName, TADname))
+                    
                 colReg = COL_PAIRED_2[which(typeName == names(geneTypeTssList))]        
                 colRegPlus = COL_PAIRED_2[which(typeName == names(geneTypeTssList))]        
                 colRegMinus = COL_PAIRED_1[which(typeName == names(geneTypeTssList))]        
@@ -249,9 +401,9 @@ for (nBin in N_BIN_LIST){
             }
         }
         
-        row.names(regInBinSum) = paste0(rep(names(geneTypeTssList), each=length(names(regionOfInterest))), "_", rep(names(regionOfInterest), length(geneTypeTssList)))
-        row.names(regInBinSumPlus) = paste0(rep(names(geneTypeTssList), each=length(names(regionOfInterest))), "_", rep(names(regionOfInterest), length(geneTypeTssList)))
-        row.names(regInBinSumMinus) = paste0(rep(names(geneTypeTssList), each=length(names(regionOfInterest))), "_", rep(names(regionOfInterest), length(geneTypeTssList)))
+        row.names(regInBinSum) = paste0(rep(names(geneTypeTssList), each=length(names(regionOfInterest))), "_", rep(c("total", chromsOfInterest), length(geneTypeTssList)))
+        row.names(regInBinSumPlus) = paste0(rep(names(geneTypeTssList), each=length(names(regionOfInterest))), "_", rep(c("total", chromsOfInterest), length(geneTypeTssList)))
+        row.names(regInBinSumMinus) = paste0(rep(names(geneTypeTssList), each=length(names(regionOfInterest))), "_", rep(c("total", chromsOfInterest), length(geneTypeTssList)))
     #~     row.names(regInBinSD) = names(geneTypeTssList)
         
         # wirte values to table output
@@ -300,9 +452,26 @@ for (nBin in N_BIN_LIST){
 
         }
     
+        
+        colnames(summaryTab) <- c("first", "second", "strand", "gene_type", "TAD")
+        save(summaryTab,paste0(outPrefix, ".", TADname, ".TAD_half.summaryTab.txt"))
 
 
     }
+    
+    
+#~     pdf(paste0(outPrefix, ".TAD_half.adjacent_vs_sameTAD.barplot.pdf"), w=14, h=7)
+#~         
+#~         ggplot(adjPlotDFcout, aes(x=adj, y=freq, fill=inTAD)) + geom_bar(position="dodge",stat="identity") +  
+#~         facet_grid(species~tissue) +
+#~         theme_bw() + scale_fill_manual(values=COL_TAD) + ylim(0, 1.2*yMax) +
+#~         theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+#~         geom_text(aes(label=freq), position=position_dodge(width=1), vjust=-0.25, size=3) + 
+#~         geom_text(data=annotDF, aes(x=1.5, y=freq+.15*yMax, label=paste0("OR=", signif(ors, 2))), size=3 ) +
+#~         geom_text(data=annotDF, aes(x=1.5, y=freq+.1*yMax, label=paste0("p=", signif(pVals, 2))), size=3) + 
+#~         labs(y="Adjacent gene pairs", x="")
+#~     dev.off()
+    
 }
 
 #=======================================================================
@@ -310,58 +479,3 @@ for (nBin in N_BIN_LIST){
 #=======================================================================
 save.image(WORKIMAGE_FILE)
 
-
-########################################################################
-# OLD STUFF:
-########################################################################
-
-#~     #-------------------------------------------------------------------
-#~     # now do the same for the conservation score
-#~     #-------------------------------------------------------------------
-#~ 
-#~     # compute the mean conservation score for each bin for all TADs
-#~     binScore = lapply(TADbins, function(tb) mean(scoreConsReg[tb]))
-#~     binScoreDF = data.frame(matrix(unlist(binScore), nrow=length(binScore), byrow=TRUE))
-#~     
-#~     binScoreMean = colMeans(binScoreDF)
-#~     binScoreSE = standardError(binScoreDF)
-#~     
-#~     # plot it along the TAD body
-#~     pdf(paste0(outPrefix, ".", TADname, ".conservation_score_along_TADs.pdf"))
-#~     
-#~         par(cex=1.5, lwd=2)
-#~         plot(binScoreMean, type="n" , xaxt = "n", xlab="", ylab="Average conservation score")
-#~     
-#~         xlab = c("-50%", "start", "domain", "end", "+50%")
-#~         xlabAT = seq(0,N_BINS, N_BINS/4)+.5
-#~         axis(1, at=xlabAT, labels=xlab)
-#~     
-#~         
-#~         addWiskers(1:N_BINS, binScoreMean, binScoreSE, length=.05, col="gray")
-#~         addPolygon(1:N_BINS, binScoreMean, binScoreSE, col="gray")
-#~         
-#~         lines(binScoreMean, type="o", pch=20)
-#~         
-#~         par(xpd=TRUE)
-#~         valueRange = max(binScoreMean) - min(binScoreMean)
-#~         yMin = min(binScoreMean) - .04 * valueRange
-#~         yLow = min(binScoreMean) - .07 * valueRange
-#~         polygon(xlabAT[c(2, 2,4, 4)], c(yLow, yMin, yMin, yLow), col="black")
-#~         #rasterImage(as.raster(cols_down)[sort(km$cluster)], -31, 0, -29, 1, interpolate=FALSE)
-#~     
-#~     dev.off()
-
-
-########################################################################
-
-#~ getPairwiseCor <- function(geneIDs, expDF){
-#~     
-#~     # get expression matrix with genes as columns and tissues as rows
-#~     expMat = t(expDF[geneIDs,])
-#~     
-#~     # get pearson correlation matrix for all gene paris
-#~     m = cor(expMat, method="pearson")
-#~ 
-#~     # return the upper triangualr matrix (all uniq pairs)
-#~     return(m[upper.tri(m)])
-#~ }

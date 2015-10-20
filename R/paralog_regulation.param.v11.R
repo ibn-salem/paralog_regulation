@@ -43,12 +43,13 @@ HIC_DATA_DIR="data/Rao2014"
 COL=brewer.pal(9, "Set1")[c(1,9)]   # for paralog vs. sampled genes
 COL_RAND=c(COL[1], brewer.pal(8, "Dark2")[8])   # random genes
 COL2=brewer.pal(9, "Set1")[c(1,2)]  # for paralog vs. non-paralog
-COL_DOMAIN=brewer.pal(9, "Set3")
+COL_DOMAIN=brewer.pal(12, "Set3")
 COL_FAMILY=brewer.pal(8, "Dark2")
 COL_EH = brewer.pal(9, "Set1")[5]
 COL_TAD = brewer.pal(8, "Set1")[c(3,5)]
 COL_ORTHO = c(brewer.pal(12, "Paired")[5], brewer.pal(8, "Pastel2")[8])
 COL_SPECIES = brewer.pal(8, "Accent")[1:2]
+COL_STRAND = brewer.pal(8, "Pastel1")[2:1]
 
 #-----------------------------------------------------------------------
 # Parameters for data loading
