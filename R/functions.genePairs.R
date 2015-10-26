@@ -457,25 +457,16 @@ sharedEnhancerMatrix <- function(geneIDs, gene2ehID, geneSymbols=geneIDs){
 #-----------------------------------------------------------------------
 # Pairwise linear distance matrix
 #-----------------------------------------------------------------------
-pairwiseDistMatrix <- function(tssGR, geneSymbols=names(tssGR)){
-    n = length(tssGR)
-    mat = matrix(rep(0, n*n), n, dimnames=list(geneSymbols, geneSymbols))
-    for (i in 1:n){
-    
-        for (j in 1:n){
+pairwiseDistMatrix <- function(gr, geneSymbols=names(gr)){
 
-            # check if genes are on same chrom
-            onSameChrom = as.logical(seqnames(tssGR)[i] == seqnames(tssGR)[j])
-            if (onSameChrom){
- 
-                # get absolute dist between TSSs of genes
-                mat[i,j] = abs( start(tssGR[i]) - start(tssGR[j]) )
-            }else{
-                mat[i,j] = NA
-            }
-        }
-    }
-    return(mat)
+    distMat <- outer(start(gr), start(gr), function(x,y) abs(x-y))
+    sameChromMat <- outer(seqnames(gr), seqnames(gr), function(x,y) as.logical(x==y))
+    
+    # set pairs on different chromosomes to NA
+    distMat[!sameChromMat] <- NA
+    dimnames(distMat) <- list(geneSymbols, geneSymbols)
+    return(distMat)
+    
 }
 
 
@@ -495,6 +486,28 @@ pairwiseContacstMatrix <- function(exampleGenes, HiClist){
     mat = matrix(contacts, n, dimnames=list(exampleGenes$hgnc_symbol, exampleGenes$hgnc_symbol))
     
     return(mat)
+}
+
+#-----------------------------------------------------------------------
+# Pairwise Hi-C contact counts as matrix
+#-----------------------------------------------------------------------
+pairwiseContacstMatrixSameChrom <- function(exampleTSS, HiClist){
+    
+    # assume only one chromosome
+    stopifnot(length(unique(seqnames(exampleTSS))) == 1)
+    stopifnot(all(width(exampleTSS) == 1))
+    
+    chr = seqnames(exampleTSS)[1]
+    map = HiClist[[paste0(chr, chr)]]
+ 
+    # get indexes of bins in Hi-C map overlapping the query regions
+    idxX = subjectHits(findOverlaps(exampleTSS, x_intervals(map))) 
+    idxY = subjectHits(findOverlaps(exampleTSS, y_intervals(map))) 
+    
+    # query interaction matrix
+    mat = intdata(map)[idxX, idxY]
+
+    return(as.matrix(mat))
 }
 
 

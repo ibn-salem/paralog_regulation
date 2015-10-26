@@ -2000,6 +2000,215 @@ message("Finish Dog paralog analysis!")
 
 #cisPairs[candidates,]
 
+# write the data of Fetuin-A and Fetuin-B (ENSG00000145192, ENSG00000090512)
+#grep("ENSG00000145192", cisPairs[,2])
+
+write.table(t(as.matrix(mcols(cisParaGR[515,]))), file=paste0(outPrefix, ".Fetuin_AB.annotation.txt"), sep="\t", quote=FALSE, col.names=FALSE)
+
+#=======================================================================
+# Olfactory receptors:
+#=======================================================================
+orPairIDX <- which(cisPairs[,1] %in% ORids & cisPairs[,2] %in% ORids)
+orDistalIDX <- which(distalCisPairs[,1] %in% ORids & distalCisPairs[,2] %in% ORids)
+
+orPairs <- cisPairs[orPairIDX,]
+orPairGR <- cisParaGR[orPairIDX]
+
+write.table(orPairs, col.names=TRUE, row.names=FALSE, file=paste0(outPrefix, ".close_pairs_OR.annotation.txt"), sep="\t", quote=FALSE)
+
+
+#~ plot(start(orPairGR[seqnames(orPairGR) == "chr1"]), ylim=c(1.58*10^8, 1.6*10^8))
+#~ plot(start(orPairGR[seqnames(orPairGR) == "chr11"]), ylim=c(0, 1*10^7))
+
+exampleLoci <- list(
+    "OR_cluster_1.4"=GRanges("chr1", IRanges(1.58*10^8, 1.6*10^8), seqinfo=seqInfo),
+    "OR_cluster_1.5"=GRanges("chr1", IRanges(2.47*10^8, 2.49*10^8), seqinfo=seqInfo),
+    "OR_cluster_11.3"=GRanges("chr11", IRanges(4*10^6, 1*10^7), seqinfo=seqInfo),
+    "OR_cluster_11.11"=GRanges("chr11", IRanges(5.4*10^7, 6*10^7), seqinfo=seqInfo)
+)
+
+for (exampleName in names(exampleLoci)){
+
+    exampleGR <- exampleLoci[[exampleName]]
+
+    # get gene names with TSS inside this interval
+    exampleTSS = subsetByOverlaps(tssGR, exampleGR, ignore.strand=TRUE)
+    exampleGenes = subsetByOverlaps(genesGR, exampleGR, ignore.strand=TRUE)
+    geneSymbols = exampleTSS$hgnc_symbol
+    
+    # define colors for paralog groups
+    geneCols = rep("black", length(geneSymbols))
+    #~ geneCols[grep("^OR1.*", geneSymbols)] = COL_FAMILY[6]
+    #~ geneCols[grep("^OR2.*", geneSymbols)] = COL_FAMILY[7]
+    candidateIDs <- which(names(exampleTSS) %in% ORids)
+    geneCols[candidateIDs] = COL_FAMILY[6]
+    candidateGenes <- exampleGenes[candidateIDs]
+    
+    matEnhancer = sharedEnhancerMatrix(names(exampleTSS), gene2ehID, geneSymbols=geneSymbols)
+    matDist = pairwiseDistMatrix(exampleTSS, geneSymbols=geneSymbols)/10^3
+    
+    # get Hi-C data
+    matContacts = pairwiseContacstMatrixSameChrom(exampleTSS, HiClist)
+    matContactsNorm = pairwiseContacstMatrixSameChrom(exampleTSS, HiClistNorm)
+    
+    dimNames <- exampleTSS$hgnc_symbol
+    dimNames[dimNames == ""] <- names(exampleTSS)[dimNames == ""]
+    dimnames(matContacts) <- list(dimNames, dimNames)
+    diag(matContacts) <- NA
+    dimnames(matContactsNorm) <- list(dimNames, dimNames)
+    diag(matContactsNorm) = NA
+    
+    # query pairwise promoter-promoter contacts
+    matCaptureCContacts = as.matrix(captureHiC[["raw"]][names(exampleTSS),names(exampleTSS)])
+    diag(matCaptureCContacts) = NA
+    matCaptureCContactsObsExp = as.matrix(captureHiC[["obsExp"]][names(exampleTSS),names(exampleTSS)])
+    diag(matCaptureCContactsObsExp) = NA
+    
+    pdf(paste0(outPrefix, ".paralogPairs.", exampleName, ".common_enhancer.heatmap.pdf"))
+        if(nrow(matEnhancer)<20){
+            labelValues <- matEnhancer
+        }else{
+            labelValues <- matrix(rep(NA, nrow(matEnhancer)^2), nrow(matEnhancer))
+        }
+        my.heatmap.2(matEnhancer, cellnote=labelValues, Rowv=FALSE, Colv=FALSE, 
+            revC=FALSE, dendrogram="none", 
+            notecex=1.5, notecol="black", trace="none",
+            ClabSide=3, RlabSide=2, margins=c(2, 2), key.xlab="Shared enhancers", main="Shared enhancers", col=brewer.pal(9,"Blues"), ClabColor=geneCols, RlabColor=geneCols)
+    dev.off()
+    
+    pdf(paste0(outPrefix, ".paralogPairs.", exampleName, ".dist.heatmap.pdf"))
+        my.heatmap.2(matDist, Rowv=FALSE, Colv=FALSE, 
+            revC=FALSE, dendrogram="none", 
+            notecex=1, notecol="black", trace="none",
+            ClabSide=3, RlabSide=2, margins=c(2, 2), key.xlab="Distance (kb)", main="Linear distance", col=colorRampPalette(rev(brewer.pal(9,"Blues"))), ClabColor=geneCols, RlabColor=geneCols 
+        )
+    dev.off()
+    
+    # Hi-C contacts has pairwise heatmaps
+    pdf(paste0(outPrefix, ".paralogPairs.", exampleName, ".Hi-C_raw_contact.heatmap.pdf"))
+        my.heatmap.2(matContacts, Rowv=FALSE, Colv=FALSE, 
+            revC=FALSE, dendrogram="none", 
+            notecex=1, notecol="black", trace="none",
+            ClabSide=3, RlabSide=2, margins=c(2, 2), key.xlab="Hi-C contacs", main="Hi-C contacts of TSS pairs", col=colorRampPalette(brewer.pal(9,"Reds")), na.color="darkgray", ClabColor=geneCols, RlabColor=geneCols
+        )
+    dev.off()
+    
+    pdf(paste0(outPrefix, ".paralogPairs.", exampleName, ".Hi-C_normalized_contact.heatmap.pdf"))
+        my.heatmap.2(log2(matContactsNorm+.01), Rowv=FALSE, Colv=FALSE, 
+            revC=FALSE, dendrogram="none", 
+            notecex=1, notecol="black", trace="none",
+            ClabSide=3, RlabSide=2, margins=c(2, 2), key.xlab="log2(O/E) Hi-C", main="Normalized Hi-C contacts\n of TSS pairs", col=colorRampPalette(rev(brewer.pal(11,"RdBu"))), na.color="darkgray", ClabColor=geneCols, RlabColor=geneCols, cexCol=30/nrow(matContactsNorm)
+        )
+    dev.off()
+    
+    # plot Capture Hi-C contacts
+    pdf(paste0(outPrefix, ".paralogPairs.", exampleName, ".CaptureHiC_raw_contact.heatmap.pdf"))
+        my.heatmap.2(matCaptureCContacts, Rowv=FALSE, Colv=FALSE, 
+            revC=FALSE, dendrogram="none", 
+            notecex=1, notecol="black", trace="none", labRow=geneSymbols, labCol=geneSymbols,
+            ClabSide=3, RlabSide=2, margins=c(2, 2), key.xlab="Capture Hi-C contacs", main="Capture Hi-C contacts of TSS pairs", col=colorRampPalette(brewer.pal(9,"Reds")), na.color="darkgray", ClabColor=geneCols, RlabColor=rev(geneCols)
+        )
+    dev.off()
+    
+    pdf(paste0(outPrefix, ".paralogPairs.", exampleName, ".CaptureHiC_ObsExp_contact.heatmap.pdf"))
+        my.heatmap.2(matCaptureCContactsObsExp, Rowv=FALSE, Colv=FALSE, 
+            revC=FALSE, dendrogram="none", 
+            notecex=1, notecol="black", trace="none", labRow=geneSymbols, labCol=geneSymbols,
+            ClabSide=3, RlabSide=2, margins=c(2, 2), key.xlab="log2(O/E) Capture Hi-C", main="Normalized Capture Hi-C contacts\n of TSS pairs", col=colorRampPalette(rev(brewer.pal(11,"RdBu"))), na.color="darkgray", ClabColor=geneCols, RlabColor=rev(geneCols)
+        )
+    dev.off()
+    
+    # iterate over all expression data sets
+    for (i in seq(nExp)){
+    
+        expName = names(expDFlist)[i]
+        expDF = expDFlist[[i]]
+    
+        matExpression = getCor(cbind(names(exampleTSS), names(exampleTSS)), expDF)
+        dimnames(matExpression)<- list(geneSymbols, geneSymbols)
+        diag(matExpression) = NA
+        
+        pdf(paste0(outPrefix, ".paralogPairs.", exampleName, ".", expName, ".expression_correlation.heatmap.pdf"))
+            my.heatmap.2(matExpression, Rowv=FALSE, Colv=FALSE, 
+                revC=FALSE, dendrogram="none", breaks = seq(-1,1,len=21),
+                notecex=1, notecol="black", trace="none",
+                ClabSide=3, RlabSide=2, margins=c(2, 2), key.xlab="Pearson R", main=paste0("Gene expression correlation\n over n=", ncol(expDF), " tissues/cells in \n", expName), col=colorRampPalette(rev(brewer.pal(11,"RdBu"))),tracecol="darkgreen", na.color="darkgray", ClabColor=geneCols, RlabColor=geneCols)
+        dev.off()
+        
+        if(!any(is.na(matExpression))){
+            pdf(paste0(outPrefix, ".paralogPairs.", exampleName, ".", expName, ".expression_correlation_dendrogram.heatmap.pdf"))
+                my.heatmap.2(matExpression, revC=TRUE,
+                    notecex=1, notecol="black", trace="none", breaks = seq(-1,1,len=21),
+                    margins=c(8, 8), key.xlab="Pearson R", main=paste0("Gene expression correlation\n over n=", ncol(expDF), " tissues/cells in \n", expName), col=colorRampPalette(rev(brewer.pal(11,"RdBu"))),tracecol="darkgreen", na.color="darkgray", ClabColor=geneCols, RlabColor=geneCols)
+            dev.off()
+        }
+        
+        # write subset of expression to output table
+        expSubset = expDF[names(exampleTSS),]
+        rowNames <- tssGR[names(exampleTSS)]$hgnc_symbol
+        rowNames[rowNames == ""] <- names(exampleTSS)[rowNames == ""]
+        row.names(expSubset) = rowNames
+        write.table(expSubset, paste0(outPrefix, ".paralogPairs.", exampleName, ".", expName, ".expression_values.csv"), sep="\t", quote=FALSE, col.names=NA)
+        
+        # heatmap of expression over tissues
+        pdf(paste0(outPrefix, ".paralogPairs.", exampleName, ".", expName, ".expression_tissues.heatmap.pdf"))
+            
+            # get breaks:
+            if (max(expSubset, na.rm=TRUE)>50) {
+                breaks = seq(0,50,len=21)
+            }else{
+                breaks = 21
+            }
+            my.heatmap.2(as.matrix(expSubset), 
+                Rowv=FALSE, Colv=FALSE, revC=FALSE, trace="none", dendrogram="none", 
+                col=colorRampPalette(brewer.pal(9,"Blues"))(20), breaks=breaks,
+                notecex=1, notecol="black",
+                RlabColor=geneCols, ClabSide=3, RlabSide=2, margins=c(2, 2),
+                key.xlab="Expression level\n[FPKM]", main=paste("Expression level in\n",gsub('_', ' ', expName))
+            )
+        dev.off()
+    }
+
+    #
+    # Hi-C plot of the LRRC8C region
+
+    # get subset of the interaction maps for the target region
+    subMap = getHiCregion(HiClist, exampleGR)
+    subMapNorm = getHiCregion(HiClistNorm, exampleGR)
+
+
+    # write browser track in long-range interaction format for the subMap
+#~     subMapLarge =  getHiCregion(HiClist, exampleGRresize(exampleGR, 6*10^6, fix="center"))
+    writeHiCinteractions(list(subMap), paste0(outPrefix, ".paralogPairs.", exampleName, ".Hi-C_IMR90_50kb.map.track.txt"))
+    
+    # binn the data for plotting
+    subMap.binned = binningC(subMap, binsize=HIC_RESOLUTION, bin.adjust=FALSE, optimize.by="speed")
+    subMapNorm.binned = binningC(subMapNorm, binsize=HIC_RESOLUTION, bin.adjust=FALSE, optimize.by="speed")
+    intdata(subMapNorm.binned) = log2(intdata(subMapNorm.binned))
+
+    # plot the interaction map with annotation tracks
+    MAXCOUNT = 1000
+    plotDomains = alteringStrand(allTADs[["Rao_IMR90"]])
+    pdf(paste0(outPrefix, ".paralogPairs.", exampleName, ".Hi-C_IMR90_50kb.map.pdf"), w=14, h=7)
+        mapC(subMap.binned, 
+            minrange=0, maxrange=MAXCOUNT, grid=TRUE,
+            tracks=list("candidates"=candidateGenes, "genes"=exampleGenes, "Enhancers"=ehGR, "TADs"=plotDomains),
+            title=paste("Chromatin contacs at", exampleName, "locus:", getLocStr(exampleGR), "\nIMR90 in situ Hi-C at 50kb resolution from Rao et al. 2014")
+            )
+#~         legend("topright", legend=MAXCOUNT, fill="red", border="red", cex=1.5)
+    dev.off()
+
+    pdf(paste0(outPrefix, ".paralogPairs.", exampleName, ".Hi-C_IMR90_50kb.map_norm.pdf"))
+        mapC(subMap.binned, subMapNorm.binned, 
+            minrange=0, maxrange=MAXCOUNT, grid=TRUE,
+            tracks=list("candidates"=candidateGenes, "genes"=exampleGenes, "Enhancers"=ehGR, "TADs"=plotDomains),
+            title=paste("Chromatin contacs at", exampleName, "locus \nIMR90 in situ Hi-C at 50kb resolution from Rao et al. 2014")
+            )
+        legend("bottomright", legend=MAXCOUNT, fill="red", border="red", cex=1.5)
+    dev.off()
+
+}
+
 #=======================================================================
 # save workspace image
 #=======================================================================

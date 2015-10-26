@@ -9,7 +9,7 @@
 #=======================================================================
 # parameters and input data files
 #=======================================================================
-VERSION="v02"
+VERSION="v03"
 
 chromFile = "data/hg19/hg19.genome"
 
@@ -36,8 +36,10 @@ PseudoGenesFiles = c(
     "Psg_dup_non-TS"="data/PseudoGenes/Duplicated_Psg_non-Transcribed_PL1_2_3.txt"
 )
 
+# essential genes
+OGEEdbFile="data/OGEEdb/9606_dataset348.txt"
 
-outPrefix=paste0("results/TAD_gene_distribution/", VERSION, ".TAD_gene_distribution")
+outPrefix=paste0("results/TAD_gene_distribution/", VERSION, ".TAD_gene_distribution.nonOverlppingTAD")
 WORKIMAGE_FILE=paste0(outPrefix, ".workspace.Rdata")
 
 # make directory if not exist already

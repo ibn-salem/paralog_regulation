@@ -20,7 +20,7 @@ require(xtable)         # to directly output latex tables
 # read parameter script location from command-line argument
 #~ args <- commandArgs(trailingOnly = TRUE)
 #~ PARAM_SCRIPT=args[1]
-PARAM_SCRIPT="R/TAD_gene_distribution.param.v02.R"
+PARAM_SCRIPT="R/TAD_gene_distribution.param.v03.R"
 source(PARAM_SCRIPT)
 
 #-----------------------------------------------------------------------
@@ -46,19 +46,54 @@ source("R/data.ensembl.R")
 # parse TAD data sets as list of GRanges
 RaoTADs = lapply(RaoDomainFiles, parseDomainsRao, disjoin=FALSE, seqinfo=seqInfo)
 
-selfOverlap <- countOverlaps(RaoTADs[["Rao_GM12878"]], RaoTADs[["Rao_GM12878"]])
+# parse TADs form Dixon et al. 2012
+DixonTADs <- lapply(DixonDomainFiles, import.bed, seqinfo=seqInfo)
 
-allTADs <- c(
+#~ allTADs <- c(
+#~     RaoTADs, 
+#~     list(
+#~         "GM12878_nonOverlapping"=RaoTADs[["Rao_GM12878"]][selfOverlap == 1],
+#~         "Stable"=getConservedTADs(RaoTADs, n=4, fraction=.9)
+#~     )
+#~ )
+rawTADs <- c(
     RaoTADs, 
-    list(
-        "GM12878_nonOverlapping"=RaoTADs[["Rao_GM12878"]][selfOverlap == 1],
-        "Stable"=getConservedTADs(RaoTADs, n=4, fraction=.9)
-    )
+    DixonTADs,
+    list("Rao_stable"=getConservedTADs(RaoTADs, n=4, fraction=.9))
 )
 
-# remove "Rao_" prefix from list names
-names(allTADs) <- gsub("Rao_", "", names(allTADs))
+nonOvlpTADs <- lapply(rawTADs, filterForNonOverlapping)
+names(nonOvlpTADs) <- paste0(names(nonOvlpTADs), "_nonOVLP")
 
+# count number of genes within each TAD to get gene density:
+genesPerTAD <- lapply(rawTADs, countOverlaps, tssGR)
+sizePerTAD <- lapply(rawTADs, width)
+genesPerMbPerTAD <- mapply(function(g,s) g/(s/10^6), genesPerTAD, sizePerTAD)
+
+# filter for 75% quantile of gene density for each TAD data set
+geneDenstyTHs <-  sapply(genesPerMbPerTAD, quantile, c(.25, .75))
+geneDenseTADs <- mapply(function(gr, gd, th) gr[gd>=th], rawTADs, genesPerMbPerTAD, geneDenstyTHs[2])
+geneSparseTADs <- mapply(function(gr, gd, th) gr[gd<th], rawTADs, genesPerMbPerTAD, geneDenstyTHs[1])
+
+names(geneDenseTADs) <- paste0(names(allTADs), "_gene_dense")
+names(geneSparseTADs) <- paste0(names(allTADs), "_gene_sparse")
+
+allTADs <- c(rawTADs, nonOvlpTADs, geneDenseTADs, geneSparseTADs)
+
+#~ # remove "Rao_" prefix from list names
+#~ names(allTADs) <- gsub("Rao_", "", names(allTADs))
+
+#-----------------------------------------------------------------------
+# parse essential genes:
+#-----------------------------------------------------------------------
+OGEE <- read.table(OGEEdbFile, header=TRUE, comment.char="", sep="\t")
+essentialIDs <- OGEE[OGEE$essential == "Y", "locus"]
+geneIDX <- match(as.character(essentialIDs), names(tssGR))
+essentialGenes = tssGR[geneIDX[!is.na(geneIDX)]]
+
+#-----------------------------------------------------------------------
+# parse pseudo genes
+#-----------------------------------------------------------------------
 parsePsg <- function(inFile){
     
     d = read.table(inFile, header=TRUE)
@@ -82,21 +117,32 @@ PsgList = lapply(PseudoGenesFiles, parsePsg)
 #~     "Intergenic" = intergenicGR
 #~ )
 
+#-----------------------------------------------------------------------
+# combine all types of genes
+#-----------------------------------------------------------------------
+
 # list of GRs of TSS of gene types of interest to be counted inside and outside of the TADs
+#~ geneTypeTssList = c(
+#~     list("protGenes"=tssGR), 
+#~     lapply(c(list("lincRNA"=lincRNAsGR), PsgList), resize, width=1, fix="start")
+#~     )
 geneTypeTssList = c(
-    list("protGenes"=tssGR), 
-    lapply(c(list("lincRNA"=lincRNAsGR), PsgList), resize, width=1, fix="start")
+    list("essentialGenes"=essentialGenes, "protGenes"=tssGR), 
+    lapply(
+        list("Psg_non-TS"=c(PsgList[["Psg_proc_non-TS"]], PsgList[["Psg_dup_non-TS"]])), 
+        resize, width=1, fix="start")
     )
 
-# separate by chrom
-geneTypePerChormList <- bplapply(geneTypeTssList,
-    function(reg){
-        chrList <- GRangesList(lapply(seqlevels(reg), function(chr){
-            reg[seqnames(reg) == chr]
-        }))
-        names(chrList) <- seqlevels(reg)
-        return(chrList)
-    })
+#~ # separate by chrom
+#~ geneTypePerChormList <- bplapply(geneTypeTssList,
+#~     function(reg){
+#~         chrList <- GRangesList(lapply(seqlevels(reg), function(chr){
+#~             reg[seqnames(reg) == chr]
+#~         }))
+#~         names(chrList) <- seqlevels(reg)
+#~         return(chrList)
+#~     })
+
 
 #-----------------------------------------------------------------------
 # Transpose a list of n GRAnges with m equal sized bins into list of all the ith bin 
@@ -117,17 +163,20 @@ fractionOfGenome <- function(gr, seqinfo=seqInfo){
 #-----------------------------------------------------------------------
 
 TADstats = round(data.frame(
-    "n" = sapply(allTADs, length), 
+    "n" = sapply(allTADs , length), 
     "mean_size" = sapply(sapply(allTADs, width), mean) / 10^3,
     "sd_size" = sapply(sapply(allTADs, width), sd) / 10^3, 
     "median_size" = sapply(sapply(allTADs, width), median) / 10^3, 
     "percent_genome" = sapply(allTADs, fractionOfGenome),
     "avg_genes" = sapply(allTADs, function(tadGR) mean(countOverlaps(tadGR, tssGR)))
     ), 2)
-row.names(TADstats) = gsub("Rao_", "", names(allTADs))
+row.names(TADstats) = names(allTADs)
 
 write.table(TADstats, paste0(outPrefix, ".TAD_statistics.csv"), sep="\t", quote=FALSE, col.names=NA)
 print.xtable(xtable(TADstats), type="latex", file=paste0(outPrefix, ".TAD_statistics.tex"))
+
+# write gene density threshold per TAD
+write.table(cbind(geneDenstyTHs), paste0(outPrefix, ".TAD_geneDensity_TH.csv"), sep="\t", quote=FALSE, col.names=NA)
 
 #-----------------------------------------------------------------------
 # Summary table of genes
@@ -141,13 +190,6 @@ RegStats = round(data.frame(
     ), 2)
     
 write.table(RegStats, paste0(outPrefix, ".geneTypeTssList_statistics.csv"), sep="\t", quote=FALSE, col.names=NA)
-
-
-#=======================================================================
-# Divide TADs and surrounding regions into bins and compute coverage and score along TAD body
-#=======================================================================
-
-
 
 #-----------------------------------------------------------------------
 # Counts the number of overlaps of qurey regions separated by + and - strand 
@@ -176,92 +218,111 @@ getStrandedCountsPerHalf <- function(TAD, geneTypeTssList){
     ))
 }
 
-#~ sapply(allTADs, function(tadName){
-#~ counts <- sapply(c("Rao_GM12878_nonOverlapping"), getStrandedCountsPerHalf, geneTypeTssList)
+# get overlap counts per TAD half for + and - stranded genes
 counts <- sapply(allTADs, getStrandedCountsPerHalf, geneTypeTssList)
+#~ counts_nonOVLP <- sapply(allTADs_nonOVLP, getStrandedCountsPerHalf, geneTypeTssList)
 
+# get number of overlapping genes per TAD type
 nGenes <- apply(counts, 2, function(v){
     rep(tapply(v, (seq_along(v)-1) %/% 4, sum), each=4)
     })
 
+# get the percent of counts
 percents <- counts / nGenes * 100 
 
-
-
+# get the total number of genes per type
 nGenesTotal <- sapply(geneTypeTssList, length)
     
+# construct some factor object to better handle the plotting
+geneTypeFactor <- factor(names(geneTypeTssList), names(geneTypeTssList), labels=paste0(names(geneTypeTssList), "\nn = ", nGenesTotal))
+TadFactor <- factor(names(rawTADs), names(rawTADs))
+TadTypeFactor <- factor(c("Raw", "nonOVLP", "geneDense", "geneSparse"), c("Raw", "nonOVLP", "geneDense", "geneSparse"))
 
-nTAD <- length(allTADs)
+# get numbers of TADs, gnee types, bins, and strands
+#~ nTAD <- length(allTADs)
+nTAD <- length(TadFactor)
+nTADtype <- length(TadTypeFactor)
 nGeneType <- length(geneTypeTssList)
 nBin <- 2
 nStrand <- 2
 
 
-geneTypeFactor <- factor(names(geneTypeTssList), names(geneTypeTssList), labels=paste0(names(geneTypeTssList), "\nn = ", nGenesTotal))
-
-
-
+# construct an data frame with all data for plotting with the ggplot framework
 countDF <- data.frame(
     "overlaps"=as.vector(counts),
     "nGenes"=as.vector(nGenes),
     "percent"=as.vector(percents),
-    "TAD"=rep(factor(names(allTADs), names(allTADs)), each=nGeneType*nBin*nStrand),
-    "GeneType"=rep(rep(geneTypeFactor, each=nBin*nStrand), nTAD),
-    "Half"=rep(rep(factor(c("1st", "2nd")), each=2), nTAD*nGeneType),
-    "Strand"=rep(factor(c("+", "-"), c("+", "-")), nTAD*nGeneType*nBin)
+    "TADtype"=rep(TadTypeFactor, each=nTAD*nGeneType*nBin*nStrand),
+    "TAD"=rep(rep(TadFactor, each=nGeneType*nBin*nStrand), nTADtype),
+    "GeneType"=rep(rep(geneTypeFactor, each=nBin*nStrand), nTADtype*nTAD),
+    "Half"=rep(rep(factor(c("1st", "2nd")), each=nStrand), nTADtype*nTAD*nGeneType),
+    "Strand"=rep(factor(c("+", "-"), c("+", "-")), nTADtype*nTAD*nGeneType*nBin)
 )
 
 # get fisher test p-values and odds ratios:
 # iterate over pairs of conditions:
-pVals <- sapply(geneTypeFactor, function(geneType){
-    sapply(names(allTADs), function(tad){
-        fisher.test(
-            matrix(countDF[countDF$GeneType == geneType & countDF$TAD==tad, "overlaps"], 2)
-        )$p.value
+combination <- sapply(TadTypeFactor, function(tadType){
+    sapply(names(rawTADs), function(tad){
+        sapply(geneTypeFactor, function(geneType){
+            paste(tadType, tad, geneType, sep="|")
+        })
     })
 })
 
-ors <- sapply(geneTypeFactor, function(geneType){
-    sapply(names(allTADs), function(tad){
-        fisher.test(
-            matrix(countDF[countDF$GeneType == geneType & countDF$TAD==tad, "overlaps"], 2)
-        )$estimate
+pVals <- sapply(TadTypeFactor, function(tadType){
+    sapply(names(rawTADs), function(tad){
+        sapply(geneTypeFactor, function(geneType){
+            fisher.test(
+                matrix(countDF[countDF$TADtype == tadType & countDF$GeneType == geneType & countDF$TAD==tad, "overlaps"], 2)
+            )$p.value
+        })
     })
 })
 
-# make data frame for plot annotations
-annotDF <- data.frame(
-    pVals=as.vector(pVals),
-    nGenes=as.vector(nGenes)[seq(nrow(nGenes)) %% 4 == 1],
-    ors=as.vector(ors),
-    percent=rep(yMax, nTAD*nGeneType),
-    TAD=rep(factor(names(allTADs), names(allTADs)), nGeneType),
-    GeneType=rep(geneTypeFactor, each=nTAD),
-    Half=rep(factor("1st", c("1st", "2nd")), nTAD*nGeneType),
-    Strand=rep(factor("-", c("+", "-")), nTAD*nGeneType)
-)
-
+ors <- sapply(TadTypeFactor, function(tadType){
+    sapply(names(rawTADs), function(tad){
+        sapply(geneTypeFactor, function(geneType){
+            fisher.test(
+                matrix(countDF[countDF$TADtype == tadType & countDF$GeneType == geneType & countDF$TAD==tad, "overlaps"], 2)
+            )$estimate
+        })
+    })
+})
 
 yMax = max(countDF$percent)
 
+# make data frame for plot annotations
+annotDF <- data.frame(
+    comb=as.vector(combination),
+    pVals=as.vector(pVals),
+    nGenes=as.vector(nGenes)[seq(nrow(nGenes)) %% 4 == 1],
+    ors=as.vector(ors),
+    percent=rep(yMax, nTADtype*nTAD*nGeneType),
+    TADtype=rep(TadTypeFactor, each=nTAD*nGeneType),
+    TAD=rep(rep(TadFactor, each=nGeneType), nTADtype),
+    GeneType=rep(geneTypeFactor, nTADtype*nTAD),
+    Half=rep(factor("1st", c("1st", "2nd")), nTADtype*nTAD*nGeneType),
+    Strand=rep(factor("-", c("+", "-")), nTADtype*nTAD*nGeneType)
+)
 
-pdf(paste0(outPrefix, ".Genes_in_TAD_half.stranded.counts.barplot.pdf"), w=7, h=7)
+starsNotation = matrix(pValToStars(pVals, ""), nrow(pVals))
+
+pdf(paste0(outPrefix, ".Genes_in_TAD_half.stranded.counts.barplot.pdf"), w=14, h=7)
     
     ggplot(countDF, aes(x=Half, y=overlaps, fill=Strand)) + geom_bar(position="dodge",stat="identity") +  
-    facet_grid(GeneType~TAD, scales="free_y") +
+    facet_grid(TADtype*GeneType~TAD, scales="free_y") +
     theme_bw() + scale_fill_manual(values=COL_STRAND) +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1), strip.text.y = element_text(angle=0)) +
     geom_text(aes(label=overlaps), position=position_dodge(width=1), hjust=+1, vjust=0.5, size=3, angle=90) +
     labs(y="Overlaps", x="TAD half")
 dev.off()
 
-
-pdf(paste0(outPrefix, ".Genes_in_TAD_half.stranded.percent.barplot.pdf"), w=7, h=7)
+pdf(paste0(outPrefix, ".Genes_in_TAD_half.stranded.percent.barplot.pdf"), w=14, h=7)
     
     ggplot(countDF, aes(x=Half, y=percent, fill=Strand)) + geom_bar(position="dodge",stat="identity") +  
-    facet_grid(GeneType~TAD) +
+    facet_grid(TADtype*GeneType~TAD) +
     theme_bw() + scale_fill_manual(values=COL_STRAND) + ylim(0, 1.4*yMax) +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1), strip.text.y = element_text(angle=0)) +
     geom_text(aes(label=signif(percent, 3)), position=position_dodge(width=1), hjust=+1, vjust=0.5, size=3, angle=90) +
     geom_text(data=annotDF, aes(x=1.5, y=1.3*yMax, label=paste0("OR=", signif(ors, 2))), size=2.5 ) +
     geom_text(data=annotDF, aes(x=1.5, y=1.1*yMax, label=paste0("p=", signif(pVals, 2))), size=2.5) + 
@@ -269,28 +330,114 @@ pdf(paste0(outPrefix, ".Genes_in_TAD_half.stranded.percent.barplot.pdf"), w=7, h
     labs(y="% overlaps", x="TAD half")
 dev.off()
 
-pdf(paste0(outPrefix, ".Genes_in_TAD_half.stranded.oddsRatio.barplot.pdf"), 14, 7)
-    par(cex=1.25, lwd=1.5)
-    starsNotation = matrix(pValToStars(pVals, ""), nrow(pVals))
+#=======================================================================
+# now combine genes on positive strand in first bin with genes on negative strand in second bin
+# and genes on negative strand in first bin with genes on positive stran in second bin.
+#=======================================================================
 
-    bp = my.barplot(ors, beside=TRUE, ylab="Odds ratio", names=geneTypeFactor, addValues=TRUE, customValues=starsNotation, col=COL_DOMAIN[seq(length(allTADs))])
-    abline(h=1, col="red")
-    legend("topleft", names(allTADs), fill=COL_DOMAIN[seq(length(allTADs))])
+sumFirstAndFourth <- function(v){
+    s = v[which((seq_along(v)-1) %% 4 %in% c(0,3))]
+    tapply(s, (seq_along(s)-1) %/% 2, sum)
+}
+
+sumSecondAndThird <- function(v){
+    s = v[which((seq_along(v)-1) %% 4 %in% c(1,2))]
+    tapply(s, (seq_along(s)-1) %/% 2, sum)
+}
+
+borderToCenter <- apply(counts, 2, sumFirstAndFourth)
+centerToBorder <- apply(counts, 2, sumSecondAndThird)
+
+# construct an data frame with all data for plotting with the ggplot framework
+mergedCountDF <- data.frame(
+    "overlaps"=c(rbind(c(borderToCenter), c(centerToBorder))),
+    "nGenes"=as.vector(nGenes)[which((seq_along(nGenes)-1) %% 4 %in% 0:1)],
+    "TADtype"=rep(TadTypeFactor, each=nTAD*nGeneType*nStrand),
+    "TAD"=rep(rep(TadFactor, each=nGeneType*nStrand), nTADtype),
+    "GeneType"=rep(rep(geneTypeFactor, each=nStrand), nTADtype*nTAD),
+    "Direction"=rep(factor(c("borderToCenter", "centerToBorder")), nTADtype*nTAD*nGeneType)
+)
+
+yMaxPerGeneType = apply(
+    rbind(apply(borderToCenter, 1, max), apply(centerToBorder, 1, max)),
+    2, max)
+
+yMaxPerTADypePerGenetype <- sapply(TadTypeFactor, function(TADtype){
+    sapply(geneTypeFactor, function(geneType){
+        max(mergedCountDF[mergedCountDF$TADtype==TADtype & mergedCountDF$GeneType == geneType, "overlaps"])
+    })
+})
+
+ratios <- sapply(TadTypeFactor, function(TADtype){
+    sapply(TadFactor, function(tad){
+        sapply(geneTypeFactor, function(geneType){
+            ols <- mergedCountDF[mergedCountDF$TADtype==TADtype & mergedCountDF$TAD==tad & mergedCountDF$GeneType == geneType, "overlaps"]
+            ols[1] / ols[2]
+        })
+    })
+})
+
+yMax <- max(mergedCountDF$overlaps)
+
+# make data frame for plot annotations
+mergedAnnotDF <- data.frame(
+    comb=as.vector(combination),
+    pVals=as.vector(pVals),
+    pValsLab=pValToStars(as.vector(pVals), ""),
+    nGenes=as.vector(nGenes)[seq(nrow(nGenes)) %% 4 == 1],
+    ors=as.vector(ors),
+    ratios=as.vector(ratios),
+    overlaps=as.vector(apply(yMaxPerTADypePerGenetype, 2, function(tadTypeMax) {rep(tadTypeMax, nTAD)})),
+    yMaxPerGeneType=rep(yMaxPerGeneType, nTADtype*nTAD),
+    TADtype=rep(TadTypeFactor, each=nTAD*nGeneType),
+    TAD=rep(rep(TadFactor, each=nGeneType), nTADtype),
+    GeneType=rep(geneTypeFactor, nTADtype*nTAD),
+    Direction=rep(factor("borderToCenter", c("borderToCenter", "centerToBorder")), nTADtype*nTAD*nGeneType)
+)
+
+pdf(paste0(outPrefix, ".Genes_in_TAD_half.stranded.counts_merged.barplot.pdf"), w=14, h=7)
+    
+    ggplot(mergedCountDF, aes(x=TAD, y=overlaps, fill=Direction)) + geom_bar(position="dodge", stat="identity") +  
+    facet_grid(GeneType~TADtype, scales="free_y") +
+    theme_bw() + scale_fill_manual(values=COL_STRAND) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    geom_text(aes(label=overlaps, y=0), position=position_dodge(width=1), hjust=-0.25, vjust=0.5, size=3, angle=90) +
+    geom_text(data=mergedAnnotDF, aes(x=TAD, y=yMaxPerGeneType, label=pValsLab), size=3 ) +
+#~     geom_text(data=mergedAnnotDF, aes(x=TAD, y=.95*yMaxPerGeneType, label=paste0("", signif(pVals, 2))), size=3 ) +
+    geom_text(data=mergedAnnotDF, aes(x=TAD, y=.95*yMaxPerGeneType, label=paste0("", signif(ratios, 2))), size=3 ) +
+    labs(y="Overlap counts", x="TAD data set")
 dev.off()
 
-
-
-pdf(paste0(outPrefix, ".Genes_in_TAD_half.stranded.pValues.barplot.pdf"))
-    par(cex=1, lwd=1.5)
-    starsNotation = matrix(pValToStars(pVals, ""), nrow(pVals))
-    
-    bp = my.barplot(-log10(pVals), offset=0.05, beside=TRUE, ylab="-log_10 P-Value", names=geneTypeFactor, col=COL_DOMAIN[seq(length(allTADs))], addValues=TRUE, customValues=starsNotation, digits=0, main="Sense vs. TAD half")
-    legend("topleft", names(allTADs), fill=COL_DOMAIN[seq(length(allTADs))])
+# plot barplot for the ratio and p-value
+pdf(paste0(outPrefix, ".Genes_in_TAD_half.stranded.merged_ratio.barplot.pdf"), 7, 7)
+    ggplot(mergedAnnotDF, aes(x=GeneType, y=ratios, fill=GeneType)) + geom_bar(position="dodge", stat="identity") +  
+    geom_hline(yintercept=1, col="red") +
+    facet_grid(TADtype~TAD, scales="free_y") +
+    theme_bw() + scale_fill_manual(values=COL_REGIONS) +
+    theme(axis.text.x = element_blank(), strip.text.x = element_text(angle=90)) +
+    geom_text(aes(label=signif(ratios,2), y=0), position=position_dodge(width=1), hjust=0, vjust=0.5, size=3, angle=90) +
+#~     geom_text(data=mergedAnnotDF, aes(x=TAD, y=ratios, label=pValsLab), size=3 ) +
+    labs(y="Ratio (5'/3')", x="TAD data set")
 dev.off()
 
-    
-    
+pdf(paste0(outPrefix, ".Genes_in_TAD_half.stranded.merged_log_ratio.barplot.pdf"), 7, 7)
+    ggplot(mergedAnnotDF, aes(x=GeneType, y=log(ratios), fill=GeneType)) + geom_bar(position="dodge", stat="identity") +  
+#~     geom_hline(yintercept=1, col="red") +
+    facet_grid(TADtype~TAD, scales="free_y") +
+    theme_bw() + scale_fill_manual(values=COL_REGIONS) +
+    theme(axis.text.x = element_blank(), strip.text.x = element_text(angle=90)) +
+    geom_text(aes(label=signif(log(ratios),2), y=0), position=position_dodge(width=1), hjust=0, vjust=0.5, size=3, angle=90) +
+#~     geom_text(data=mergedAnnotDF, aes(x=TAD, y=ratios, label=pValsLab), size=3 ) +
+    labs(y="Log-ratio (5'/3')", x="TAD data set")
+dev.off()
 
+#------------------------------------------------------------------------
+stop("Stop execution here!")
+#------------------------------------------------------------------------
+
+#=======================================================================
+# iterate over different bin numbers and all combination for individual plots and statistics
+#=======================================================================
 
 # iterate over bin numbers:
 for (nBin in N_BIN_LIST){

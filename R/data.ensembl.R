@@ -29,6 +29,8 @@ realChromFile = "data/hg19/hg19.genome.realChroms"
 chromFileMouse = "data/mm10/mm10.chrom.sizes"
 chromFileDog = "data/canFam3/canFam3.chrom.sizes"
 
+OLFACTORY_RECEPTOR_GO="GO:0004984"
+
 outPrefixDataEnsembl=paste0("results/data/ensembl.data.", VERSION_DATA_ENSEMBL)
 
 # make directory if not exist already
@@ -169,6 +171,15 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
     
     save(paralogPairsDogALL, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogPairsDogALL.RData"))
 
+    #-------------------------------------------------------------------
+    # Download gene ids (ENSG) for olfactory receptor genes
+    #-------------------------------------------------------------------
+#~     orAttributes = c("ensembl_gene_id", "hgnc_symbol")
+    orFilters=c("chromosome_name", "go_id")
+    # read "normal" human chromosome names (without fixes and patches)
+    orValues=list(c(1:22, "X", "Y"), OLFACTORY_RECEPTOR_GO)
+    orGenes = getBM(attributes=geneAttributes, mart=ensemblGRCh37, filters=orFilters, values=orValues)
+    save(orGenes, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.orGenes.RData"))
     
 
 # if USE_LOCAL_DATA_ENSEMBL, just load the saved data from local hard disc
@@ -183,6 +194,7 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.mouseOrthologsInHumanALL.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.allDogGenes.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogPairsDogALL.RData"))
+    load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.orGenes.RData"))
     message("Finished.")
 }
 
@@ -213,16 +225,20 @@ gene2hgnc = as.list(knownCodingGenes$hgnc_symbol)
 names(gene2hgnc) = knownCodingGenes$ensembl_gene_id
 
 # make GRanges object for all known prot coding genes
-genesGR = getGenesGR(genes, seqInfo)
+genesGR = sort(getGenesGR(genes, seqInfo), ignore.strand=TRUE)
 
 # make GRanges object for all genes including non-coding
 knownGenes = allGenes[allGenes$status=="KNOWN",]
-allGenesGR = getGenesGR(knownGenes[!duplicated(knownGenes$ensembl_gene_id),], seqInfo)
+allGenesGR = sort(getGenesGR(knownGenes[!duplicated(knownGenes$ensembl_gene_id),], seqInfo), ignore.strand=TRUE)
 
 # make GenomicRange objects for TSS of Genes:
 tssGR = getTssGRfromENSEMBLGenes(genes, seqInfoRealChrom, colNames=c("hgnc_symbol"))
 tssGR$gene_size = genes[names(tssGR), "end_position"] - genes[names(tssGR), "start_position"]
+tssGR <- sort(tssGR, ignore.strand=TRUE)
 
+# olfactory receptor genes
+ORids = orGenes$ensembl_gene_id
+ORtssGR = tssGR[names(tssGR) %in% ORids]
 
 #-----------------------------------------------------------------------
 # Convert Mouse and Dog genes to GRanges

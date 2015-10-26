@@ -84,6 +84,14 @@ getExonGR <- function(exonDF, seqInfo, annotCols=c("ensembl_exon_id", "rank", "g
 }
 
 #-----------------------------------------------------------------------
+# Filter for only those ranges that do not overlap other ranges
+#-----------------------------------------------------------------------
+filterForNonOverlapping <- function(gr){
+    gr[countOverlaps(gr, gr) == 1]
+}
+
+
+#-----------------------------------------------------------------------
 # Downsample a GRanges object
 #-----------------------------------------------------------------------
 downSampleGR <- function(gr, n){

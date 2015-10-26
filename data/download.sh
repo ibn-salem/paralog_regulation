@@ -352,6 +352,12 @@ wget -P Lemaitre2009 http://www.biomedcentral.com/content/supplementary/1471-216
 #=======================================================================
 # copy pseudo gene data manually to data/PseudoGenes
 
+#=======================================================================
+# OGEEdb (essential genes)
+#=======================================================================
+mdir -p OGEEdb
+wget -P OGEEdb http://ogeedb.embl.de/downloads/9606_dataset348.txt.gz
+gunzip OGEEdb/9606_dataset348.txt.gz
 
 #=======================================================================
 # ChIP-exo data for CTCF by Rhee and Pugh 2012 (mapped and by Starick and Ibn-Salem et al. 2015)
