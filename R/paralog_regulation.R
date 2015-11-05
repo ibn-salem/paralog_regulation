@@ -95,16 +95,20 @@
 # X Evolutionary breakpoint of TADs
 # - check source of slight enrichment of negative expression correlation (use random pairs from different chromosomes)
 
+# ISSUES TO BE FIXED BEFORE FINAL NUMBERS:
+# - TAD bed file and ranges +/- 1 error (Rao org data use 0-based including coords)
+# - make all gene pair data frames as.character()
+# - check mapping of enhancers to genes with tssGR object and id remapping
+
 # TO FINALIZE PIPELINE FOR SUBMISSION:
 # X redesign code to run on MOGON server
-# X make all gene pair data frames as.character()
 # X use orghologMouse instead of orthologAll data set
 # X use seed() command for reproducible randomizations
 # - remove the following parts from the analysis (if not included in manuscript):
 #   X TF motif analysis
-#   - conserved TADs over all cell types
+#   X conserved TADs over all cell types
 #   x MIC score of expression correlation
-# - check mapping of enhancers to genes with tssGR object and id remapping
+# - put sameTAD annotations in the cisPairs not in the GR and combine replicated sampled pairs early
 
 require(biomaRt)        # to retrieve human paralogs from Ensembl
 require(stringr)        # for some string functionality
@@ -312,6 +316,8 @@ allCisPairs = addSameStrand(allCisPairs, tssGR)
 # add number of common enhancers
 allCisPairs = addCommonEnhancer(allCisPairs, gene2ehID)
 
+# add position of enhancers:
+allCisPairs = addRelativeEnhancerPosition(allCisPairs, tssGR, gene2ehID, ehGR)
 
 # add pairwise correlations of gene expression over all tissues
 for (expName in names(expDFlist)) {
@@ -425,6 +431,8 @@ Sys.sleep(3)
 randCisPairs = lapply(randCisPairs, addHGNC, tssGR)
 randCisPairs = lapply(randCisPairs, addSameStrand, tssGR)
 randCisPairs = bplapply(randCisPairs, addCommonEnhancer, gene2ehID)
+Sys.sleep(3)
+randCisPairs = bplapply(randCisPairs, addRelativeEnhancerPosition, tssGR, gene2ehID, ehGR)
 Sys.sleep(3)
 
 for (expName in names(expDFlist)) {
@@ -1991,6 +1999,218 @@ message("Finish Mouse paralog analysis!")
 runBasicParalogAnalysis(paste0(outPrefix, ".Dog"), paralogPairsDog, "cfamiliaris_paralog_ds", tssGRdog, speciesTADs[["cfamiliaris"]], tissueName="Dog", HiClist=speciesHiC[["cfamiliaris"]][[1]], HiClistNorm=speciesHiC[["cfamiliaris"]][[2]])
 message("Finish Dog paralog analysis!")
 
+#=======================================================================
+# Compare sahred enhancer positions
+#=======================================================================
+nEhPos <- 3
+ehColNames = c("eh_up", "eh_cent", "eh_down")
+ehPosFactor <- factor(c("upstream", "center", "downstream"), levels=c("upstream", "center", "downstream"), labels=c("upstream", "center", "downstream"))
+
+ehPosDF = data.frame(
+        "group" = c(rep("paralogs", nParaPairs*nEhPos), rep("sampled", nRandPairs*nEhPos)),
+        "enahncer_position"= unlist(list(rep(ehPosFactor, each=nParaPairs), rep(ehPosFactor, each=nRandPairs))),
+        "eh_counts"=c(unlist(cisPairs[,ehColNames]), unlist(randCisPairsCombined[,ehColNames])),
+        "sameIMR90_TAD"=factor(c(rep(mcols(cisParaGR)[,"Rao_IMR90"], nEhPos), rep(mcols(cisRandGRall)[,"Rao_IMR90"], nEhPos)), levels=c(TRUE, FALSE), labels=c("same TAD (Rao IMR90)", "not same TAD"))
+)
+
+pdf(paste0(outPrefix,"enhancer_position_same_strand.paralogs_sampled.1-5_enhancers.barplot.pdf"))
+    ggplot(ehPosDF[!is.na(ehPosDF$eh_count) & ehPosDF$eh_count <= 6 & ehPosDF$eh_count >=1,]) + 
+        geom_bar(aes(factor(eh_counts), fill=enahncer_position), width=.6, position="dodge") +
+        theme_bw() + facet_grid(group~sameIMR90_TAD, scales="free_y") + 
+        labs(y="Counts", x="Number of enhancers", title= "Position of shared enhancer") + scale_fill_manual(values=COL_EH_POS) 
+dev.off()
+
+pdf(paste0(outPrefix,"enhancer_position_same_strand.paralogs_sampled.number_of_enhancers.barplot.pdf"))
+    ggplot(ehPosDF[!is.na(ehPosDF$eh_count) & ehPosDF$eh_count >=1,]) + 
+        geom_bar(aes(enahncer_position, fill=factor(eh_counts), weight=eh_counts)) +
+        theme_bw() + facet_grid(group~sameIMR90_TAD, scales="free_y") + 
+        labs(y="Summed counts", x="Enhancer position", title= "Shared enhancer position relative to genes pairs") + 
+        scale_fill_manual(values=colorRampPalette(brewer.pal(9, "Oranges"))(length(unique(ehPosDF$eh_count))), guide = guide_legend("Enhancer\ncounts")) 
+dev.off()
+
+pdf(paste0(outPrefix,"enhancer_position_same_strand.paralogs_sampled.all_summed.barplot.pdf"))
+    ggplot(ehPosDF) +  #, 
+        geom_bar(aes(enahncer_position, fill=enahncer_position, weight=eh_counts)) +
+        theme_bw() + facet_grid(group~sameIMR90_TAD, scales="free_y") + 
+        labs(y="Combined counts", title= "Position of shared enhancer") + scale_fill_manual(values=COL_EH_POS) 
+        
+dev.off()
+
+#=======================================================================
+# Compare jung vs. old pairs
+#=======================================================================
+
+# combine all sampled data sets:
+cisRandGRall <- do.call("c", cisRandGR)
+cisRandAll <- mcols(cisRandGRall)
+
+nSpecies=length(orgStr2Name) 
+nTAD <- length(allTADs)
+nParaPairs <- nrow(cisPairs)
+nRandPairs <- sum(sapply(cisRandGR, length))
+
+
+# check if "one2one ortholog" is a good approximation for duplication age
+seqSimDF <- data.frame(
+    "species"= rep(factor(orgStr2Name, orgStr2Name), each=nParaPairs),
+    "one2one" = c(cisPairs[,"mmusculus_one2one"], cisPairs[,"cfamiliaris_one2one"]),
+    "Ds"= rep(cisPairs[,"hsapiens_paralog_ds"],nSpecies),
+    "Dn"= rep(cisPairs[,"hsapiens_paralog_dn"],nSpecies)
+)
+
+pdf(paste0(outPrefix,"old_vs_jung.Ds_vs_one2one.violin_plot.pdf"), w=3.5, h=7)
+    ggplot(seqSimDF, aes(x=one2one, y=Ds, fill=one2one)) + geom_violin() + scale_y_log10() + 
+        theme_bw() + theme(legend.position = "bottom") + scale_fill_manual(values=COL_AGE) +
+        geom_boxplot(aes(fill=NULL), width=.2, colour="black", outlier.shape = NA) +
+        facet_grid(.~species) + 
+        labs(y="Rate of synonymouse mutations Ds") + guides(fill=guide_legend(title="One-to-one orthologs"))
+dev.off()
+
+pdf(paste0(outPrefix,"old_vs_jung.Dn_vs_one2one.violin_plot.pdf"), w=3.5, h=7)
+    ggplot(seqSimDF, aes(x=one2one, y=Dn, fill=one2one)) + geom_violin() + scale_y_log10() + 
+        theme_bw() + theme(legend.position = "bottom") + scale_fill_manual(values=COL_AGE) +
+        geom_boxplot(aes(fill=NULL), width=.2, colour="black", outlier.shape = NA) +
+        facet_grid(.~species) + 
+        labs(y="Rate of non-synonymouse mutations Ds") + guides(fill=guide_legend(title="One-to-one orthologs"))
+dev.off()
+
+
+# make data.frame with additional columns indicating the groups
+paraExpCorDF <- data.frame(
+    expCor = unlist(paraExpCorSummaryList), 
+    dataset = rep(
+        rep(
+            paste0(gsub('_', ' ', names(expDFlist)), "\n n=", sapply(expDFlist, ncol), " tissues" )
+            , each=2), 
+        times = sapply(paraExpCorSummaryList,length)
+        ),
+    genepairs = rep(
+        rep(c("Paralog", "Sampled"), nExp),
+        sapply(paraExpCorSummaryList,length)
+        ),
+    dist = rep(c(cisPairs[,"dist"], randCisPairsCombined[,"dist"]), nExp),
+    commonEnhancer = rep(c(cisPairs[,"commonEnhancer"], randCisPairsCombined[,"commonEnhancer"]), nExp),
+    DupAge_beforeMouse = factor(rep(c(cisPairs[,"mmusculus_one2one"], randCisPairsCombined[,"mmusculus_one2one"]), nExp), c(FALSE, TRUE), c("Young", "Old")),
+    DupAge_beforeDog = factor(rep(c(cisPairs[,"cfamiliaris_one2one"], randCisPairsCombined[,"cfamiliaris_one2one"]), nExp), c(FALSE, TRUE), c("Young", "Old"))
+)
+
+pdf(paste0(outPrefix,"old_vs_jung.beforeMouse.Expression_correlation.all_data.boxplot.pdf"))
+    ggplot(paraExpCorDF, na.rm=TRUE, aes(x=genepairs, y = expCor, fill=DupAge_beforeMouse)) + theme_bw() + labs(y="Pearson correlation coefficient", title= "Co-expression correlation over tissues")  + facet_grid(.~dataset) + theme(legend.position = "bottom") + theme(text = element_text(size=15)) + scale_color_manual(values=COL) + scale_fill_manual(values=COL_AGE) + geom_boxplot(lwd=1)
+dev.off()
+
+pdf(paste0(outPrefix,"old_vs_jung.beforeMouse.Expression_correlation.all_data.violinplot.pdf"))
+    ggplot(paraExpCorDF, na.rm=TRUE, aes(x=genepairs, y = expCor, fill=DupAge_beforeMouse)) + theme_bw() + labs(y="Pearson correlation coefficient", title= "Co-expression correlation over tissues")  + facet_grid(.~dataset) + theme(legend.position = "bottom") + theme(text = element_text(size=15)) + scale_color_manual(values=COL) + scale_fill_manual(values=COL_AGE) + geom_violin(adjust = .2)
+dev.off()
+
+pdf(paste0(outPrefix,"old_vs_jung.beforeDog.Expression_correlation.all_data.boxplot.pdf"))
+    ggplot(paraExpCorDF, na.rm=TRUE, aes(x=genepairs, y = expCor, fill=DupAge_beforeDog)) + theme_bw() + labs(y="Pearson correlation coefficient", title= "Co-expression correlation over tissues")  + facet_grid(.~dataset) + theme(legend.position = "bottom") + theme(text = element_text(size=15)) + scale_color_manual(values=COL) + scale_fill_manual(values=COL_AGE) + geom_boxplot(lwd=1)
+dev.off()
+
+pdf(paste0(outPrefix,"old_vs_jung.beforeMouse.sharedEnhancer.pdf"))
+#~     ggplot(paraExpCorDF[1:(nrow(paraExpCorDF)/nExp),], aes(commonEnhancer, group=DupAge_beforeMouse, fill=DupAge_beforeMouse)) + 
+#~     geom_histogram(aes(y = ..density..), breaks=0:8, position="dodge") + xlim(0,8) +
+#~     theme_bw() + 
+#~     labs(y="Number of pairs", title= "Number of shared enhancer")  + theme(legend.position = "bottom") + scale_color_manual(values=COL) + scale_fill_manual(values=COL_AGE) + 
+#~     facet_grid(genepairs~.)
+    ggplot(paraExpCorDF[1:(nrow(paraExpCorDF)/nExp),], aes(commonEnhancer, group=DupAge_beforeMouse, fill=DupAge_beforeMouse)) + 
+    geom_bar(aes(y = ..density..), badwidth=1, width=.5, position="dodge") + xlim(0,10) +
+    theme_bw() + 
+    labs(y="Density", title= "Number of shared enhancer")  + theme(legend.position = "bottom") + scale_color_manual(values=COL) + scale_fill_manual(values=COL_AGE) + 
+    facet_grid(genepairs~.)
+dev.off()
+
+
+pdf(paste0(outPrefix,"old_vs_jung.dist.pdf"))
+    ggplot(paraExpCorDF[1:(nrow(paraExpCorDF)/nExp),], aes(abs(dist)/10^3, group=DupAge_beforeMouse, colour=DupAge_beforeMouse, fill=DupAge_beforeMouse)) + 
+#~     scale_x_log10() +
+#~     geom_histogram() +
+    geom_density(alpha = 0.1, lwd=1.2) +
+    theme_bw() + 
+    labs(y="Density", x="Distance [kb]")  + theme(legend.position = "bottom") + scale_color_manual(values=COL_AGE) + scale_fill_manual(values=COL_AGE) +
+    facet_grid(genepairs~.)
+dev.off()
+
+
+tadDF <- data.frame(
+    "sameTAD" = c(
+            unlist(rbind(mcols(cisParaGR)[,names(allTADs)])),
+            unlist(rbind(mcols(cisRandGRall)[,names(allTADs)]))
+                ),
+    "genepairs" = c(rep("Paralog", nParaPairs*nTAD), rep("Sampled", nRandPairs*nTAD)),    
+    "cellType" = c(rep(names(allTADs), each=nParaPairs), rep(names(allTADs), each=nRandPairs)),    
+#~     DupAge_beforeMouse = factor(rep(c(cisPairs[,"mmusculus_one2one"], randCisPairsCombined[,"mmusculus_one2one"]), nTAD), c(FALSE, TRUE), c("Young", "Old")),
+    DupAge_beforeMouse = factor(c(rep(cisPairs[,"mmusculus_one2one"], nTAD), rep(randCisPairsCombined[,"mmusculus_one2one"], nTAD)), c(FALSE, TRUE), c("Young", "Old")),
+    DupAge_beforeDog = factor(c(rep(cisPairs[,"cfamiliaris_one2one"], nTAD), rep(randCisPairsCombined[,"cfamiliaris_one2one"], nTAD)), c(FALSE, TRUE), c("Young", "Old"))
+)
+
+# get the fraction for each combination
+fracTadDF <- ddply(tadDF, .(genepairs, cellType, DupAge_beforeMouse), summarize, frac=percentTrue(sameTAD))
+
+pdf(paste0(outPrefix,"old_vs_jung.sameTAD.pdf"))
+
+    ggplot(fracTadDF, aes(y=frac, x=cellType, fill=DupAge_beforeMouse)) + 
+    geom_bar(stat="identity", position="dodge") +
+    theme_bw() + 
+    labs(y="Percent of pairs in same TAD", x="")  + theme(legend.position = "bottom") +  scale_fill_manual(values=COL_AGE) +
+    geom_text(aes(label=signif(frac,3)), position=position_dodge(width=1), vjust=-0.25, size=3) + 
+    facet_grid(genepairs~.) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+dev.off()
+
+#-----------------------------------------------------------------------
+nParaDist <- nrow(distalCisPairs)
+nRandDist <- nrow(randDistalCisPairsCombined)
+
+hicDF = data.frame(
+        group = c(rep("paralogs", nParaDist), rep("sampled", nRandDist)),
+        DupAge_beforeMouse = factor(c(distalCisPairs[,"mmusculus_one2one"], randDistalCisPairsCombined[,"mmusculus_one2one"]), c(FALSE, TRUE), c("Young", "Old")),
+        DupAge_beforeDog = factor(c(distalCisPairs[,"cfamiliaris_one2one"], randDistalCisPairsCombined[,"cfamiliaris_one2one"]), c(FALSE, TRUE), c("Young", "Old")),
+        HiCraw = c(distalCisPairs[,"HiCfreq"], randDistalCisPairsCombined[,"HiCfreq"]),
+        HiCnorm = c(distalCisPairs[,"HiCnorm"], randDistalCisPairsCombined[,"HiCnorm"]),
+        captureC_raw = c(distalCisPairs[,"captureC_raw"], randDistalCisPairsCombined[,"captureC_raw"]),
+        captureC_ObsExp = c(distalCisPairs[,"captureC_ObsExp"], randDistalCisPairsCombined[,"captureC_ObsExp"]),
+        dist=abs(c(distalCisPairs[,"dist"], randDistalCisPairsCombined[,"dist"]))/10^3,
+        distBin=as.factor(breaks[.bincode(abs(c(distalCisPairs[,"dist"], randDistalCisPairsCombined[,"dist"]))/10^3, breaks)])
+)
+hicDF$HiCrawNoZero = hicDF$HiCraw
+hicDF$HiCrawNoZero[hicDF$HiCraw == 0] = NA
+hicDF$HiCnormNoZero = hicDF$HiCnorm
+hicDF$HiCnormNoZero[hicDF$HiCnorm == 0] = NA
+
+pdf(paste0(outPrefix,"old_vs_jung.Hi-C.pdf"), w=3.5, h=7)
+    ggplot(hicDF, aes(x=group, y=HiCraw, colour = DupAge_beforeMouse))  +
+    geom_boxplot(lwd=1.5) + scale_y_log10() + 
+    scale_color_manual(values=COL_AGE, name="") +
+    theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position="bottom") + 
+    guides(fill=guide_legend(title="")) +
+    labs(y="Hi-C counts", x="")
+dev.off()
+
+pdf(paste0(outPrefix,"old_vs_jung.Hi-C_norm.pdf"), w=3.5, h=7)
+    ggplot(hicDF, aes(x=group, y=HiCnorm, colour = DupAge_beforeMouse))  +
+    geom_boxplot(lwd=1.5) + scale_y_log10() + 
+    scale_color_manual(values=COL_AGE, name="") +
+    theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position="bottom") + 
+    guides(fill=guide_legend(title="")) +
+    labs(y="Normalized Hi-C counts", x="")
+dev.off()
+
+pdf(paste0(outPrefix,"old_vs_jung.CaptureC_raw.pdf"), w=3.5, h=7)
+    ggplot(hicDF, aes(x=group, y=captureC_raw, colour = DupAge_beforeMouse))  +
+    geom_boxplot(lwd=1.5) + scale_y_log10() + 
+    scale_color_manual(values=COL_AGE, name="") +
+    theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position="bottom") + 
+    guides(fill=guide_legend(title="")) +
+    labs(y="Capture-C counts", x="")
+dev.off()
+
+pdf(paste0(outPrefix,"old_vs_jung.captureC_ObsExp.pdf"), w=3.5, h=7)
+    ggplot(hicDF, aes(x=group, y=captureC_ObsExp, colour = DupAge_beforeMouse))  +
+    geom_boxplot(lwd=1.5) + scale_y_log10() + 
+    scale_color_manual(values=COL_AGE, name="") +
+    theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position="bottom") + 
+    guides(fill=guide_legend(title="")) +
+    labs(y="Capture-C (Obs/Exp)", x="")
+dev.off()
 
 #=======================================================================
 # Best candidate picking...
@@ -2011,8 +2231,45 @@ write.table(t(as.matrix(mcols(cisParaGR[515,]))), file=paste0(outPrefix, ".Fetui
 orPairIDX <- which(cisPairs[,1] %in% ORids & cisPairs[,2] %in% ORids)
 orDistalIDX <- which(distalCisPairs[,1] %in% ORids & distalCisPairs[,2] %in% ORids)
 
+
+# get subset of pairs taht are OR
 orPairs <- cisPairs[orPairIDX,]
 orPairGR <- cisParaGR[orPairIDX]
+
+orDistalPairs <- distalCisPairs[orDistalIDX,]
+
+# Make data.frame for plotting with ggplot2
+breaks = seq(DISTAL_MIN_DIST, DISTAL_MAX_DIST, length.out=10) / 10^3
+plotDF = data.frame(
+        group = c(rep("OR", nrow(orDistalPairs)), rep("paralogs", nrow(distalCisPairs)), rep("sampled", nrow(randDistalCisPairsCombined))),
+        HiCraw = c(orDistalPairs[,"HiCfreq"], distalCisPairs[,"HiCfreq"], randDistalCisPairsCombined[,"HiCfreq"]),
+        HiCnorm = c(orDistalPairs[,"HiCnorm"], distalCisPairs[,"HiCnorm"], randDistalCisPairsCombined[,"HiCnorm"]),
+        captureC_raw = c(orDistalPairs[,"captureC_raw"], distalCisPairs[,"captureC_raw"], randDistalCisPairsCombined[,"captureC_raw"]),
+        captureC_ObsExp = c(orDistalPairs[,"captureC_ObsExp"],  distalCisPairs[,"captureC_ObsExp"], randDistalCisPairsCombined[,"captureC_ObsExp"]),
+        dist=abs(c(orDistalPairs[,"dist"], distalCisPairs[,"dist"], randDistalCisPairsCombined[,"dist"]))/10^3,
+        distBin=as.factor(breaks[.bincode(abs(c(orDistalPairs[,"dist"], distalCisPairs[,"dist"], randDistalCisPairsCombined[,"dist"]))/10^3, breaks)])
+    )
+
+
+plotDF$HiCrawNoZero = plotDF$HiCraw
+plotDF$HiCrawNoZero[plotDF$HiCraw == 0] = NA
+plotDF$HiCnormNoZero = plotDF$HiCnorm
+plotDF$HiCnormNoZero[plotDF$HiCnorm == 0] = NA
+
+groupCol = c(COL_FAMILY[6], COL)
+p =  ggplot(plotDF, aes(x=group, y=HiCnorm, colour = group)) + scale_y_log10() +
+    geom_boxplot(lwd=1.5) + 
+    scale_color_manual(values=groupCol, guide=FALSE) +
+    theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position="bottom") + 
+    guides(fill=guide_legend(title="")) +
+    labs(y="Normalized Hi-C counts", x="")
+
+# save ggplot as pdf
+ggsave(p, file=paste0(outPrefix, "OR_genes.distal_pairs.Hi-C_normalized_contacts.boxplot.pdf"), w=3.5, h=7)
+
+#-----------------------------------------------------------------------
+# analysie close OR pairs
+#-----------------------------------------------------------------------
 
 write.table(orPairs, col.names=TRUE, row.names=FALSE, file=paste0(outPrefix, ".close_pairs_OR.annotation.txt"), sep="\t", quote=FALSE)
 

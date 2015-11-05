@@ -50,6 +50,8 @@ COL_TAD = brewer.pal(8, "Set1")[c(3,5)]
 COL_ORTHO = c(brewer.pal(12, "Paired")[5], brewer.pal(8, "Pastel2")[8])
 COL_SPECIES = brewer.pal(8, "Accent")[1:2]
 COL_STRAND = brewer.pal(8, "Pastel1")[2:1]
+COL_AGE = brewer.pal(9, "YlOrRd")[c(6,9)]
+COL_EH_POS=brewer.pal(9, "Set3")[c(5,9,6)]
 
 #-----------------------------------------------------------------------
 # Parameters for data loading

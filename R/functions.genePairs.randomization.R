@@ -104,14 +104,14 @@ getSampleWeightsByDist <- function(hitDF, sourcePairs, colName="dist", ...){
 sampleFromAllPairsByWeight <- function(n, hitDF, tssGR, weight){
         
     # sample random pairs from input pairs according to weights
-    pairIDX = sample.int(nrow(hitDF), n, prob=weight, replace=TRUE)
+    pairIDX <- sample.int(nrow(hitDF), n, prob=weight, replace=TRUE)
     
     # construct gene pair DF from sampled pairs
     data.frame(
         g1=as.character(names(tssGR)[hitDF[pairIDX,1]]),
         g2=as.character(names(tssGR)[hitDF[pairIDX,2]]),
-        dist=hitDF[pairIDX, "dist"]
-    )
+        dist=hitDF[pairIDX, "dist"],
+    stringsAsFactors=FALSE)
     
 }
 # rP = sampleFromAllPairs( n=100, hitDF=allGenePairs,tssGR, sourcePairs=cisPairs[abs(cisPairs$dist) <= MAX_DIST, ], sourceGenes=paralogs[,1])
@@ -155,7 +155,9 @@ weightByEnhancers <- function(tssGR, sourceNames){
 # sample randomly pairs from the entire gene set with equal probabilities
 #-----------------------------------------------------------------------
 getRandomPairs <- function(n, geneIDs){
-    randomPairs = data.frame(t(replicate(n, sample(geneIDs, size=2, replace=FALSE))), stringsAsFactors=FALSE)
+    randomPairs = data.frame(
+        t(replicate(n, sample(geneIDs, size=2, replace=FALSE))), 
+        stringsAsFactors=FALSE)
     names(randomPairs) = c("g1", "g2")
     return(randomPairs)
 }

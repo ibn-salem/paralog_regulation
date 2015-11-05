@@ -75,13 +75,19 @@ geneDenstyTHs <-  sapply(genesPerMbPerTAD, quantile, c(.25, .75))
 geneDenseTADs <- mapply(function(gr, gd, th) gr[gd>=th], rawTADs, genesPerMbPerTAD, geneDenstyTHs[2])
 geneSparseTADs <- mapply(function(gr, gd, th) gr[gd<th], rawTADs, genesPerMbPerTAD, geneDenstyTHs[1])
 
-names(geneDenseTADs) <- paste0(names(allTADs), "_gene_dense")
-names(geneSparseTADs) <- paste0(names(allTADs), "_gene_sparse")
+names(geneDenseTADs) <- paste0(names(rawTADs), "_gene_dense")
+names(geneSparseTADs) <- paste0(names(rawTADs), "_gene_sparse")
 
 allTADs <- c(rawTADs, nonOvlpTADs, geneDenseTADs, geneSparseTADs)
 
 #~ # remove "Rao_" prefix from list names
 #~ names(allTADs) <- gsub("Rao_", "", names(allTADs))
+
+# write all TADs to BED files:
+for (tadName in names(allTADs)){
+    TAD = allTADs[[tadName]]
+    export(sort(TAD), paste0(outPrefix, ".TAD_data.", tadName, ".bed"))
+}
 
 #-----------------------------------------------------------------------
 # parse essential genes:

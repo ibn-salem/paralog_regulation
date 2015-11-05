@@ -39,15 +39,11 @@ source("R/functions.plot.R")
 source("R/functions.genePairs.R")
 source("R/parseHiC.R")
 source("R/functions.Hi-C.R")
+source("R/functions.GRanges.R")
 
 # load ensemble data sets of genes and paralog pairs
 source("R/data.ensembl.R")     # load ensambl data
 
-#-----------------------------------------------------------------------
-# make GenomicRange objects for TSS of Genes:
-#-----------------------------------------------------------------------
-tssGR = getTssGRfromENSEMBLGenes(genes, seqInfoRealChrom, colNames=c("hgnc_symbol"))
-tssGR$gene_size = genes[names(tssGR), "end_position"] - genes[names(tssGR), "start_position"]
 
 #-----------------------------------------------------------------------
 # Parse TADs
@@ -132,8 +128,14 @@ nSpecies <- length(speciesSeqInfo)
 nPairs <- nrow(adjPairs)
 nTAD <- length(allTADs)
 
+#equalBreaks = seq(10^0, 10^6, length.out=11) / 10^3
+#quantileBreaks = quantile(adjPairs[,"dist"],  seq(0, 1, .25)) / 10^3
+quants = quantile(adjPairs[,"dist"])
+quantileBreaks = cut(adjPairs[,"dist"], breaks=quants, labels=names(quants)[2:length(quants)], include.lowest=TRUE)
+
 adjPlotDF <- data.frame(
     dist = rep(adjPairs[,"dist"], nSpecies * nTAD),
+    quantileBin=rep(quantileBreaks, nSpecies * nTAD),
     adj = unlist(lapply(names(speciesSeqInfo), function(s){rep(adjPairs[, paste0(s, "_orthologs_adjacent")], nTAD)})),
     inTAD = rep(unlist(lapply(names(allTADs), function(tad) adjPairs[, paste0(tad, "_TAD")])), nSpecies),
     tissue = rep(rep(names(allTADs), each=nPairs), nSpecies),
@@ -145,7 +147,7 @@ adjPlotDF$adj <- factor(adjPlotDF$adj, levels=c(TRUE, FALSE), labels=c("syntenic
 adjPlotDF$inTAD <- factor(adjPlotDF$inTAD, levels=c(TRUE, FALSE), labels=c("Same TAD", "Not same TAD"))
 
 # count occurrences of combinations
-adjPlotDFcout <- count(adjPlotDF[!is.na(adjPlotDF[,"adj"]),], var=c("adj", "inTAD", "tissue", "species"))
+adjPlotDFcout <- count(adjPlotDF[!is.na(adjPlotDF[,"adj"]),], var=c("adj", "inTAD", "tissue", "species", "quantileBin"))
 
 # get fisher test p-values and odds ratios:
 # iterate over pairs of conditions:
@@ -179,14 +181,24 @@ annotDF <- data.frame(
 )
 
 
+#-----------------------------------------------------------------------
+# Distance between adjacent gene pairs
+#-----------------------------------------------------------------------
+
 pdf(paste0(outPrefix, ".adjacent_genes.all.distance_vs_sameTAD.boxplot.pdf"), w=14, h=7)
     ggplot(adjPlotDF[!is.na(adjPlotDF[,"adj"]),], na.rm=TRUE, aes(x=adj, y = log10(dist), fill=inTAD)) + geom_boxplot() + theme_bw() + facet_grid(species~tissue) + scale_fill_manual(values=COL_TAD) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
-    labs(y="Distance between adjacent genes [log10(bp)]", x="")
-    
+    labs(y="Distance between adjacent genes [log10(bp)]", x="")    
 dev.off()
 
-pdf(paste0(outPrefix, ".adjacent_genes.all.adjacent_vs_sameTAD.barplot.pdf"), w=14, h=7)
-    
+pdf(paste0(outPrefix, ".adjacent_genes.all.distance_vs_sameTAD.byDistQuant.boxplot.pdf"), w=14, h=7)
+    ggplot(adjPlotDF[!is.na(adjPlotDF[,"adj"]),], na.rm=TRUE, aes(x=adj, y = log10(dist), fill=inTAD)) + geom_boxplot() + theme_bw() + facet_grid(species+quantileBin~tissue, scales="free_y") + scale_fill_manual(values=COL_TAD) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+    labs(y="Distance between adjacent genes [log10(bp)]", x="")    
+dev.off()
+
+#-----------------------------------------------------------------------
+# Number of rearranged pairs 
+#-----------------------------------------------------------------------
+pdf(paste0(outPrefix, ".adjacent_genes.all.adjacent_vs_sameTAD.barplot.pdf"), w=14, h=7)    
     ggplot(adjPlotDFcout, aes(x=adj, y=freq, fill=inTAD)) + geom_bar(position="dodge",stat="identity") +  
     facet_grid(species~tissue) +
     theme_bw() + scale_fill_manual(values=COL_TAD) + ylim(0, 1.2*yMax) +
@@ -196,6 +208,22 @@ pdf(paste0(outPrefix, ".adjacent_genes.all.adjacent_vs_sameTAD.barplot.pdf"), w=
     geom_text(data=annotDF, aes(x=1.5, y=freq+.1*yMax, label=paste0("p=", signif(pVals, 2))), size=3) + 
     labs(y="Adjacent gene pairs", x="")
 dev.off()
+
+pdf(paste0(outPrefix, ".adjacent_genes.all.adjacent_vs_sameTAD.byDistQuant.barplot.pdf"), w=14, h=7)
+
+    ggplot(adjPlotDFcout, aes(x=adj, y=freq, fill=inTAD)) + geom_bar(position="dodge",stat="identity") +  
+    facet_grid(species+quantileBin~tissue) +
+    theme_bw() + scale_fill_manual(values=COL_TAD) 
+
+dev.off()
+    
+#~     + ylim(0, 1.2*yMax) +
+#~     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+#~     geom_text(aes(label=freq), position=position_dodge(width=1), vjust=-0.25, size=3) + 
+#~     geom_text(data=annotDF, aes(x=1.5, y=freq+.15*yMax, label=paste0("OR=", signif(ors, 2))), size=3 ) +
+#~     geom_text(data=annotDF, aes(x=1.5, y=freq+.1*yMax, label=paste0("p=", signif(pVals, 2))), size=3) + 
+#~     labs(y="Adjacent gene pairs", x="")
+
 
 #=======================================================================
 # save workspace

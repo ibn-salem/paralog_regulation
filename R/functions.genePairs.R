@@ -315,6 +315,67 @@ addCommonEnhancer <- function(genePair, gene2ehID){
 }
 
 
+
+
+#-----------------------------------------------------------------------
+# add the number of shared enhancers that are upstrem, between, or downstream
+# of gene pairs with same strand orientation
+#-----------------------------------------------------------------------
+addRelativeEnhancerPosition <- function(genePairs, tssGR, gene2ehID, ehGR, colNames=c("eh_up", "eh_cent", "eh_down")){
+    
+    commonEhID <- apply(genePairs[,1:2], 1, function(gP){
+        intersect(gene2ehID[[gP[1]]], gene2ehID[[gP[2]]])
+        })
+    
+    # reduce enhancer coordinates to center
+    ehCenter = start(resize(ehGR, 1, fix="center"))
+        
+    # check if both genes have strand information
+    strand1 = as.vector(strand(tssGR[genePairs[,1]]))
+    strand2 = as.vector(strand(tssGR[genePairs[,2]]))
+    commonStrand = ifelse(strand1==strand2, strand1, NA)
+    
+    allCounts <- sapply(1:nrow(genePairs), function(i){
+
+        gP <- genePairs[i,1:2]
+        st <- commonStrand[i]
+        ehIDs <- commonEhID[[i]]
+        
+        # get start coordinate of genes
+        s1 <- start(tssGR[as.character(gP[1])])
+        s2 <- start(tssGR[as.character(gP[2])])
+        
+        # if no common strand return NA counts
+        if (is.na(st)){
+            ucdCounts <- rep(NA, 3)
+        }else{
+            # if no enhancer is linked to both return 0 for all possible combinations
+            if (length(ehIDs) == 0){
+                ucdCounts <- c(0,0,0)
+            }else{
+                # iterate over enhancers and count "upstream", "center", and "downstream"
+                cEh <- ehCenter[ehIDs]
+                ucdCounts <- c(
+                    sum((st=="+" & cEh <= s1 & cEh <= s2) | (st=="-" & cEh > s1 & cEh > s2)),
+                    sum( (cEh > s1 & cEh <= s2) | (cEh <= s1 & cEh > s2) ),
+                    sum( (st=="+" & cEh > s1 & cEh > s2) | (st=="-" & cEh <= s1 & cEh <= s2) )
+                    )
+
+                # double check that all cases are covered
+                stopifnot(sum(ucdCounts) == length(ehIDs))
+            }
+        }
+        return(ucdCounts)
+    })
+    
+    # add counts to gene pair df
+    genePairs[,colNames] <- t(allCounts)
+    
+    return(genePairs)
+    
+}
+
+
 #-----------------------------------------------------------------------
 # distribution of shared enhancers among pairs of genes
 #-----------------------------------------------------------------------

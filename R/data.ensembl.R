@@ -174,13 +174,10 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
     #-------------------------------------------------------------------
     # Download gene ids (ENSG) for olfactory receptor genes
     #-------------------------------------------------------------------
-#~     orAttributes = c("ensembl_gene_id", "hgnc_symbol")
     orFilters=c("chromosome_name", "go_id")
-    # read "normal" human chromosome names (without fixes and patches)
     orValues=list(c(1:22, "X", "Y"), OLFACTORY_RECEPTOR_GO)
     orGenes = getBM(attributes=geneAttributes, mart=ensemblGRCh37, filters=orFilters, values=orValues)
-    save(orGenes, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.orGenes.RData"))
-    
+    save(orGenes, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.orGenes.RData"))    
 
 # if USE_LOCAL_DATA_ENSEMBL, just load the saved data from local hard disc
 }else{

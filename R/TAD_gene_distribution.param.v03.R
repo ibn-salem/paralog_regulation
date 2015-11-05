@@ -55,6 +55,7 @@ COL_DARK2 = brewer.pal(8, "Dark2")
 COL_STRAND = brewer.pal(8, "Pastel1")[2:1]
 COL_DOMAIN=brewer.pal(12, "Set3")
 
+
 N_BINS=4
 N_BIN_LIST=c(4, 40)
 
