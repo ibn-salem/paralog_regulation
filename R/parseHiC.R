@@ -300,35 +300,35 @@ parseRudanHiC <- function(inFile, seqInfo, resolution=50*10^3){
 
 #-----------------------------------------------------------------------
 # parse promoter-promoter interaction from Capture Hi-C (Mifsud2015a)
+# This function sums up all pairwise interactions counts in case of duplicated ENSG pair entries in the input file
 #-----------------------------------------------------------------------
 parseCaptureHiC <- function(inFile, tssGR){
 
     # parse input file as data frame
     classes <- sapply(read.delim(inFile, nrows = 5, header=TRUE, stringsAsFactors=FALSE ), class)
-    inData = read.delim(inFile, header=TRUE, colClasses = classes, stringsAsFactors=FALSE)
+    inData <- read.delim(inFile, header=TRUE, colClasses = classes, stringsAsFactors=FALSE)
     
     # iterate over rows in indata and parse pairwise contacts
-    # This might run 35 min
-#~     pwList <- lapply(1:100, function(i) {
+    # This runs in less than 9 min
     pwList <- lapply(1:nrow(inData), function(i) {
         
         if (i %% 1000 == 0){
             message(paste("Parsing line", i, "..."))
         }
         
-        genes1 = strsplit(inData[i, 5], split="[|]")[[1]]
-        genes2 = strsplit(inData[i,11], split="[|]")[[1]]
+        genes1 <- strsplit(inData[i, 5], split="[|]")[[1]]
+        genes2 <- strsplit(inData[i, 11], split="[|]")[[1]]
 
         # filter for only those genes that are in tssGR 
-        genes1 = genes1[genes1 %in% names(tssGR)]
-        genes2 = genes2[genes2 %in% names(tssGR)]
+        genes1 <- genes1[genes1 %in% names(tssGR)]
+        genes2 <- genes2[genes2 %in% names(tssGR)]
         
-        # get all possible pairs
-#~         allPairs = rbind(expand.grid(genes1, genes2), expand.grid(gene2, genes1))
-        allPairs = expand.grid(genes1, genes2)
+        # get all possible pairs between the two gene sets
+        allPairs <- expand.grid(genes1, genes2)
 
-        nPairs = nrow(allPairs)
+        nPairs <- nrow(allPairs)
         
+        # add counts raw.count and log.observed.expected
         cbind(allPairs, rawCounts=rep(inData[i,13], nPairs), obsExp=rep(inData[i,14], nPairs))
                 
     })
@@ -346,10 +346,13 @@ parseCaptureHiC <- function(inFile, tssGR){
     # (see: http://adv-r.had.co.nz/Subsetting.html)
     select = apply(pairwiseDF[, 1:2], 2, match, names(tssGR))
 
-#~     Mraw = sparseMatrix(i=select[,1], j=select[,2], x=pairwiseDF[,3], dims=c(n,n), dimnames=list(names(tssGR), names(tssGR)), symmetric = TRUE)
+    # create sparse matrix 
     Mraw = sparseMatrix(i=select[,1], j=select[,2], x=pairwiseDF[,3], dims=c(n,n), dimnames=list(names(tssGR), names(tssGR)))
+    
+    # make matrix symmetric by using the 2 times the average of upper and lower triangular matrix
     Mraw = forceSymmetric(symmpart(Mraw) * 2)
 
+    # create sparse matrix for obs/exp
     MobsExp = sparseMatrix(i=select[,1], j=select[,2], x=pairwiseDF[,4], dims=c(n,n), dimnames=list(names(tssGR), names(tssGR)))
     MobsExp = forceSymmetric(symmpart(MobsExp) * 2)
     

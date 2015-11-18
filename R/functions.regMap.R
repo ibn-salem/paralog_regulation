@@ -9,6 +9,7 @@
 # load some useful libraries
 require(stringr)
 require(GenomicRanges)
+require(BiocParallel)   # for parallel computing
 
 
 #-----------------------------------------------------------------------
@@ -37,10 +38,13 @@ parseOConnorRegMap <- function(regMapFile){
 
 #-----------------------------------------------------------------------
 # read the regulatory interaction map from the format provied by the
-# FANTOM5 consortium. It needs need a data.frame with all genes from ESNEMBL (including HGNC symbol, transcription_start, strand...) as additional input.
-# It returns a list which includes the regualtory map as data.frame of ids, a Grange object with with only the used TSS and a GRanges object with the used enhancers.
+# FANTOM5 consortium. It needs need a GRanges object with genes (or TSS), a GRanges object with all enhancers, a mappin of RefSeq IDs to ENSG id.
+# It the regualtory map as data.frame of ids.
 #-----------------------------------------------------------------------
-parseFANTOM5RegMap <- function(regMapFile, allGenes, allEnhancers, seqInfo){
+parseFANTOM5RegMap <- function(regMapFile, tssGR, ehGR, refSeqToENSG){
+    
+    # filter refSeqToENSG to only those ENSG IDs in tssGR:
+    refSeqToEnsgFiltered <- refSeqToENSG[refSeqToENSG %in% names(tssGR)]
 
     # read FANTOM5 regulatory map, which contains bed interval of associted enhancer to promoters
     FANTOM5 = read.delim(regMapFile)
@@ -50,42 +54,48 @@ parseFANTOM5RegMap <- function(regMapFile, allGenes, allEnhancers, seqInfo){
     names(regGene) = c("loc", "RefSeq", "Gene", "R", "FDR")
     regGene$R = as.numeric(sub("^R:", "", regGene$R))
     regGene$FDR = as.numeric(sub("^FDR:", "", regGene$FDR))
-        
-    # make GR for enhancers with unique IDs
-    enhancerGR = GRanges(FANTOM5[,1], IRanges(FANTOM5$thickStart, FANTOM5$thickEnd), seqinfo=seqInfo)
-    indexInAllEnhancer = subjectHits(findOverlaps(enhancerGR, allEnhancers))
+    refSeqList <- str_split(regGene$RefSeq, ",")
     
-    # unique genes by HGNC symbol and remove "" as symbol
-    allGenesHGNC = allGenes[!duplicated(allGenes$hgnc_symbol),]
-    allGenesHGNC = allGenesHGNC[allGenesHGNC$hgnc_symbol != "",]
+    # map each refSeq ID to a ENSGIDs
+    ensgList <- bplapply(refSeqList, function(ids){
+        ensgID <- refSeqToEnsgFiltered[ids]
+        ensgID[!is.na(ensgID)]
+        })
+    
+    # get unique ESNG for possible multiple (transcripts) refSeq IDs mapping to the same ENSG ID
+    uniqueEnsgList <- lapply(ensgList, unique)
+    
+    # count IDs
+    countEnsg <- sapply(uniqueEnsgList, length)
+    
+    # get indexes of only the uniquelly mapped associations
+    uniqueMappable <- which(countEnsg == 1)
+    
+    # get unique mapped ENSG IDs
+    ensgIDs <- unlist(uniqueEnsgList[uniqueMappable])
+    
+    message(paste0("INFO: FANTOM enhancer map: ", length(uniqueMappable), " of ",  nrow(FANTOM5), " enhancer-associated genes could be mapped uniquelly to ENSG IDs."))
+    
+    # make GR for enhancers in FANTOM file to get the index of ehGR
+    usedEnhancerGR = GRanges(FANTOM5[uniqueMappable,1], IRanges(FANTOM5[uniqueMappable, "thickStart"], FANTOM5[uniqueMappable,"thickEnd"]), seqinfo=seqinfo(ehGR))
+    indexInAllEnhancer = subjectHits(findOverlaps(usedEnhancerGR, ehGR))
 
-    # make tssGR with only the genes used in the map
-    tssGR = getTssGRfromENSEMBLGenes(allGenesHGNC[allGenesHGNC$hgnc_symbol %in% regGene$Gene, ], seqInfo)
-    
     # get map as data.frame of IDs
-    map = data.frame(
+    regMap = data.frame(
 
-        # map HGNC symbol to index in GRange object for genes
-        tss=match(regGene$Gene, tssGR$hgnc_symbol),
+        # map ENSG to index in GRange object for genes
+        tss=match(ensgIDs, names(tssGR)),
 
-        # get index in ehGR for enhancerID
+        # put index of associated enhancer in ehGR
         enhancer=indexInAllEnhancer
     )
-    
+
     # add annotation fro FANTOM5 map
-    map = cbind(map, regGene)
-
-    # remove unmappable genes
-    map = map[!is.na(map[,1]),]
+    regMap = cbind(regMap, regGene[uniqueMappable,])
     
-    return(list(map=map, tssGR=tssGR))
-    
+    return(regMap)
 }
-#fantomData = parseFANTOM5RegMap(REGMAP_FILE_FANTOM5, allGenes, seqInfo)
-#mapFANTOM=fantomData[["map"]]
-#tssGRFANTOM=fantomData[["tssGR"]]
-#ehGRFANTOM=fantomData[["ehGR"]]
-
+    
 #-----------------------------------------------------------------------
 # Get the locus string chr:start-end form a GRanges object
 #-----------------------------------------------------------------------

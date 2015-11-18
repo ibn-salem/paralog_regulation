@@ -72,8 +72,8 @@ getSampleWeightsByDistAndEnhancers <- function(hitDF, tssGR, sourcePairs, ...){
     pairWeightEH = pairWeightEH / sum(pairWeightEH)
     
     # get observed probabilty density of distances in source pairs
-    distDens = approxfun(density(sourcePairs$dist, ...))
-    pairWeightDist = distDens(hitDF$dist)
+    distDens = approxfun(density(abs(sourcePairs$dist), ...))
+    pairWeightDist = distDens(abs(hitDF$dist))
 
     # if probability is NA set it to 0
     pairWeightDist[is.na(pairWeightDist)] = 0
@@ -93,25 +93,30 @@ getSampleWeightsByDistAndEnhancers <- function(hitDF, tssGR, sourcePairs, ...){
 getSampleWeightsByDist <- function(hitDF, sourcePairs, colName="dist", ...){
 
     # get observed probabilty density of distances in real source pairs
-    distDens = approxfun(density(sourcePairs[,colName], ...))
-    pairWeightDist = distDens(hitDF[,colName])
+    distDens = approxfun(density(abs(sourcePairs[,colName]), ...))
+    pairWeightDist = distDens(abs(hitDF[,colName]))
+
     # set prob of NAs to zero
     pairWeightDist[is.na(pairWeightDist)] = 0
     return(pairWeightDist / sum(pairWeightDist, na.rm=TRUE))
 }
 
-
+#-----------------------------------------------------------------------
+# sample pairs from the input gene pair set according to given sampling weights
+#-----------------------------------------------------------------------
 sampleFromAllPairsByWeight <- function(n, hitDF, tssGR, weight){
         
     # sample random pairs from input pairs according to weights
     pairIDX <- sample.int(nrow(hitDF), n, prob=weight, replace=TRUE)
     
     # construct gene pair DF from sampled pairs
-    data.frame(
+    rP <- data.frame(
         g1=as.character(names(tssGR)[hitDF[pairIDX,1]]),
         g2=as.character(names(tssGR)[hitDF[pairIDX,2]]),
         dist=hitDF[pairIDX, "dist"],
     stringsAsFactors=FALSE)
+    
+    return(rP)
     
 }
 # rP = sampleFromAllPairs( n=100, hitDF=allGenePairs,tssGR, sourcePairs=cisPairs[abs(cisPairs$dist) <= MAX_DIST, ], sourceGenes=paralogs[,1])

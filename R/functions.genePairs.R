@@ -806,6 +806,24 @@ getOrthologs <- function(genePairs, orthologsAll, orgStr, tssGR){
 }
 
 #-----------------------------------------------------------------------
+# return a boolean string wehter the two genes have a common ortholog
+#-----------------------------------------------------------------------
+commonOrthologs <- function(genePairs, orthologsAll, orgStr, types=c("ortholog_one2many", "ortholog_one2one")){
+    
+    # filter for allowed orthology types:
+    orthologs <- orthologsAll[orthologsAll[,paste0(orgStr, "_homolog_orthology_type")] %in% types,]
+        
+    oList1 <- lapply(genePairs[,1], function(g) orthologs[orthologs[,1] == g, 2]) 
+    oList2 <- lapply(genePairs[,2], function(g) orthologs[orthologs[,1] == g, 2]) 
+    
+    commonOrtholog <- mapply(intersect,oList1, oList2)
+    
+    commonOrthNumber <- sapply(commonOrtholog, length)
+    
+    return(commonOrthNumber > 0)
+}
+
+#-----------------------------------------------------------------------
 # checks if both genes in a set of gene paris are not NA
 #-----------------------------------------------------------------------
 pairNotNA <- function(genePairs){
@@ -873,6 +891,23 @@ getPairwiseMatrixScore <- function(genePairs, M, tssGR, replaceZeroByNA=FALSE){
     return(scores)
 }
 
+#-----------------------------------------------------------------------
+# get pairwise information from matrix. Matrix is assumed to have gene names (matching the first two columns of query data.frame) as dimensions names
+#-----------------------------------------------------------------------
+getPairwiseMatrixScoreByName <- function(genePairs, M, replaceZeroByNA=FALSE){
+    
+    idx1 = match(genePairs[,1], dimnames(M)[[1]])
+    idx2 = match(genePairs[,2], dimnames(M)[[2]])
+    scores = M[cbind(idx1, idx2)]
+    
+    if (replaceZeroByNA){
+        # For capture C data from Mifsud et al. 2015:
+        # Due to sparse matrix data structure non available pairs will get 0 counts
+        # Since no 0 count pair is in the original data, we can replace all 0 with NA
+        scores[scores==0] <- NA
+    }
+    return(scores)
+}
 
 #-----------------------------------------------------------------------
 # for each gene pair get the gene ID of unique common ortholog genes
@@ -903,6 +938,15 @@ getUniqueCommonOrthologs <- function(genePairs, orthologsSpecies, orthoGeneCol){
     return(commonOrthologsSpecies)
 }
 
+
+#-----------------------------------------------------------------------
+# add flags for commonOrthologs and NotOneToOne
+#-----------------------------------------------------------------------
+addAgeFlags <- function(genePairs, orthologsSpecies, orgStr){    
+    genePairs[, paste0(orgStr, "_commonOrtholg")] <- commonOrthologs(genePairs, orthologsSpeciesList[[orgStr]], orgStr)
+    genePairs[, paste0(orgStr, "_NotOne2one")] <- ! genePairs[, paste0(orgStr, "_one2one")]
+    return(genePairs)
+}
 
 #-----------------------------------------------------------------------
 # get a boolean vector indicating whether (in case of same strand) the first 

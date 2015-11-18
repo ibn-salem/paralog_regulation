@@ -119,6 +119,25 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
     save(allExons, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.allExons.RData"))
 
     #-------------------------------------------------------------------
+    # get RefSeq ID to ENSG mapping
+    #-------------------------------------------------------------------
+    refSeqAttributes <- c("refseq_mrna", "ensembl_gene_id")
+    refSeqFilters <- c("chromosome_name", "with_refseq_mrna")
+    refSeqValues <- list("chromosome_name"=c(1:22, "X", "Y"), with_refseq_mrna=TRUE) 
+    refSeqToEnsgDF = getBM(attributes=refSeqAttributes, mart=ensemblGRCh37, filters=refSeqFilters, values=refSeqValues)
+    
+    # take only unique refSeq IDs (This will delete 20 out of 35945)
+    refSeqToEnsgDF <- refSeqToEnsgDF[!duplicated(refSeqToEnsgDF$refseq_mrna),]
+    
+    # convert data.frame into a named vector
+    refSeqToENSG <- refSeqToEnsgDF[,2]
+    names(refSeqToENSG) <- refSeqToEnsgDF[,1]
+    
+    # save or load downloaded data 
+    save(refSeqToENSG, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.refSeqToENSG.RData"))
+
+
+    #-------------------------------------------------------------------
     # Download mouse genes and paralog pairs
     #-------------------------------------------------------------------
     # define database and choose the mouse gene dataset
@@ -141,12 +160,6 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
     paralogPairsMouseALL = getBM(attributes=paralogParisMouseAttr, filters="with_paralog_mmus", values=TRUE, mart=ensemblMouse)    
     
     save(paralogPairsMouseALL, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogPairsMouseALL.RData"))
-
-    # mouse to human orthologs to get one (in mouse) to many (in humna)
-    mouseOrthologsInHumanAttr = c("ensembl_gene_id", "hsapiens_homolog_ensembl_gene", "hsapiens_homolog_orthology_type", "hsapiens_homolog_subtype", "hsapiens_homolog_perc_id", "hsapiens_homolog_perc_id_r1", "hsapiens_homolog_dn", "hsapiens_homolog_ds")     
-    mouseOrthologsInHumanALL = getBM(attributes=mouseOrthologsInHumanAttr, filters="with_homolog_hsap", values=TRUE, mart=ensemblMouse)    
-
-    save(mouseOrthologsInHumanALL, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.mouseOrthologsInHumanALL.RData"))
 
     #-------------------------------------------------------------------
     # Download DOG genes and paralog pairs
@@ -186,9 +199,9 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogPairsALL.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.orthologsSpeciesList.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.allExons.RData"))
+    load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.refSeqToENSG.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.allMouseGenes.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogPairsMouseALL.RData"))
-    load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.mouseOrthologsInHumanALL.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.allDogGenes.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogPairsDogALL.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.orGenes.RData"))
@@ -267,6 +280,12 @@ rownames(genesDog) <- genesDog$ensembl_gene_id
 # make GRange object for the TSS positions
 tssGRdog = getTssGRfromENSEMBLGenes(genesDog, seqInfoDog, colNames=c("external_gene_name"))
 tssGRdog$gene_size = genesDog[names(tssGRdog), "end_position"] - genesDog[names(tssGRdog), "start_position"]
+
+# combine tssGR's form all species to list
+speciesTssGR <- list(
+    "mmusculus" = tssGRmouse,
+    "cfamiliaris" = tssGRdog
+)
 
 #-------------------------------------------------------------------
 # Filter human paralogs and get non-paralog gene sets
@@ -373,3 +392,16 @@ npcGR = GRanges(
         seqinfo=seqInfo
     )
 names(npcGR) <- npcUNIQ$ensembl_gene_id
+
+
+#=======================================================================
+# Write out some data as plain text file
+#=======================================================================
+countGenes = table(paralogPairs[,1])
+
+paralogTable = data.frame(Ensembl_gene_ID=paralogs, gene_size=tssGR[paralogs]$gene_size, n_paralogs=countGenes[paralogs])
+nonParalogTable = data.frame(Ensembl_gene_ID=nonParalogs, gene_size=tssGR[nonParalogs]$gene_size, n_paralogs=countGenes[nonParalogs])
+
+write.table(paralogTable, col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".ENSG_size_copies.paralogs.txt"), sep="\t", quote=FALSE)
+
+write.table(nonParalogTable, col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".ENSG_size_copies.nonParalogs.txt"), sep="\t", quote=FALSE)

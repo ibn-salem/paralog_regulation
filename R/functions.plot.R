@@ -10,6 +10,7 @@ require(stringr)
 require(RColorBrewer)
 require(gplots) 
 require(ggplot2)        # for nice plots
+require(gridExtra)      # for dotplot with denisty at axis
 
 #-----------------------------------------------------------------------
 # Hi-C plot
@@ -491,6 +492,57 @@ applyToSubset <- function(df, fun, valueCol, groupCol, ...){
         fun(df[df[,groupCol] == grp, valueCol], ...)
     })
 }
+
+#-----------------------------------------------------------------------
+# Dotplot with density at axis
+# according to: http://www.r-bloggers.com/ggplot2-cheatsheet-for-visualizing-distributions/
+# use grid::grid.draw() to plot the return value
+#-----------------------------------------------------------------------
+dotplotWithDensityLogXY <- function(plotDF, xvar, yvar, zvar, COL=c("orange", "purple"), ALPHA=.5){
+
+    #placeholder plot - prints nothing at all
+    empty <- ggplot()+geom_point(aes(1,1), colour="white") +
+         theme(                              
+           plot.background = element_blank(), 
+           panel.grid.major = element_blank(), 
+           panel.grid.minor = element_blank(), 
+           panel.border = element_blank(), 
+           panel.background = element_blank(),
+           axis.title.x = element_blank(),
+           axis.title.y = element_blank(),
+           axis.text.x = element_blank(),
+           axis.text.y = element_blank(),
+           axis.ticks = element_blank()
+         )
+    
+    #scatterplot of x and y variables
+    scatter <- ggplot(plotDF,aes_string(xvar, yvar)) + 
+      geom_point(aes_string(color=zvar), alpha=ALPHA) + scale_x_log10() + scale_y_log10() + 
+      scale_color_manual(values = COL) + theme_bw() + 
+      theme(legend.position=c(1,1),legend.justification=c(-.1,-.1), plot.margin =rep(grid::unit(c(0,0,1,1), "cm"),4))  
+    
+    #marginal density of x - plot on top
+    plot_top <- ggplot(plotDF, aes_string(xvar, fill=zvar)) + 
+      geom_density(alpha=.5) + scale_x_log10() + theme_bw() + 
+      scale_fill_manual(values = COL) + 
+      theme(legend.position = "none", axis.title.x = element_blank(), plot.margin = rep(grid::unit(c(1,0,0,1), "cm"),4))
+      
+    #marginal density of y - plot on the right
+    plot_right <- ggplot(plotDF, aes_string(yvar, fill=zvar)) + 
+      geom_density(alpha=.5) + scale_x_log10() + coord_flip() + theme_bw() + 
+      scale_fill_manual(values = COL) + 
+      theme(legend.position = "none", axis.title.y = element_blank(), plot.margin = rep(grid::unit(c(0,1,1,0), "cm"),4))
+    
+    #arrange the plots together, with appropriate height and width for each row and column
+#~     grid.arrange(plot_top, empty, scatter, plot_right, ncol=2, nrow=2, widths=c(4, 1), heights=c(1, 4))
+    arrangeGrob(plot_top, empty, scatter, plot_right, ncol=2, nrow=2, widths=c(4, 1), heights=c(1, 4))
+}
+#grid::grid.draw(dotplotWithDensityLogXY(plotDFcloseHiC, "dist", "HiCraw", "group", COL))
+
+#-----------------------------------------------------------------------
+# save the return value of arrangeGrob 
+#-----------------------------------------------------------------------
+grobSave <- ggplot2::ggsave; body(ggsave) <- body(ggplot2::ggsave)[-2]
 
 #-----------------------------------------------------------------------
 # A very simple heatmap plot of matirx like objects
