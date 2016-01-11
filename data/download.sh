@@ -449,8 +449,34 @@ gunzip OGEEdb/9606_dataset348.txt.gz
 #~ "
 #~ 
 #~ mkdir -p ENCODE
-#~ for F in $SELECTED_ENCODE; do
+#~ for F in $SELECTED_ENCODE; dom
     #~ wget -P ENCODE http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeSydhTfbs/${F} 
 #~ done
 #~ 
+
+#=======================================================================
+# ENCODE TF ChIP-seq data:
+#=======================================================================
+# metadata file from ENCODE : metadata.csv
+wget "https://www.encodeproject.org/metadata/type=Experiment&assay_term_name=ChIP-seq&status=released&assembly=hg19&target.investigated_as=transcription+factor&files.file_type=bed+narrowPeak&replication_type=isogenic/metadata.tsv"
+
+# filter for CTCF ChIP-seq peaks
+cat metadata.tsv \
+    | grep "optimal idr thresholded peaks" \
+    | grep "CTCF-human" \
+    > metadata.tsv.idr.CTCF
+# add header
+head -n 1 metadata.tsv > metadata.tsv.header
+cat  metadata.tsv.header  metadata.tsv.idr.CTCF > metadata.tsv.idr.CTCF.withHeader
+
+cat metadata.tsv.idr.CTCF \
+    |awk -F'\t' '{print $39}' \
+    > metadata.tsv.idr.CTCF.links
+
+# download all files
+mkdir -p ENCODE
+wget -P ENCODE -i metadata.tsv.idr.CTCF.links
+
+# unzip all files
+gunzip ENCODE/*.bed.gz
 

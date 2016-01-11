@@ -393,7 +393,7 @@ getInteractions <- function(xRange, yRange, HiClist){
 # Query an Hi-C interaction matrix with two (or more) genomic intervals.
 # E.g to get the interaction frequencies between two TSS coordinates.
 #-----------------------------------------------------------------------
-getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=sum, inParallel=TRUE){
+getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=sum, inParallel=TRUE, ignoreSameBin=FALSE){
     
     # assume equal length of the input ranges
     stopifnot(length(xRange) == length(yRange))
@@ -406,8 +406,6 @@ getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=sum, inPara
     freq = rep(NA, n)
     
     # iterate over all unique chromosomes (in parallel)
-#~     for (chr in unique(chroms)){
-#~     freqValues = bplapply(as.character(unique(chroms)), function(chr){
     freqValues = get(ifelse(inParallel, "bplapply", "lapply"))(as.character(unique(chroms)), function(chr){
     
         message(paste("INFO: Query interactions for chromosome:", chr))
@@ -422,7 +420,6 @@ getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=sum, inPara
         if ( ! mapName %in% names(HiClist) ){
             
             message(paste("WARNING: Could not find map with name:", mapName))
-#~             freq[onChrom] = NA
             return(NA)
         }else{
         
@@ -433,11 +430,22 @@ getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=sum, inPara
             idxY = as.list( findOverlaps(yRange[onChrom], y_intervals(map)) ) 
     
             # query the interaction matrix with the indexes of bins
-#~             freq[onChrom] = mapply(
-            return(
-                mapply(function(i,j){ combineFun( intdata(map)[i,j] )}, 
+            contacts <- mapply(function(i,j){ 
+                        combineFun( intdata(map)[i,j] )
+                    }, 
                     idxX, idxY)
-                )
+            
+            # ignore contact counts if both regions map to the same bin
+            if (ignoreSameBin){
+                
+                sameBin <- mapply(function(i,j){
+                    length(i) == length(j) & all(i == j)
+                }, idxX, idxY)
+                
+                contacts[sameBin] <- NA
+            }
+            
+            return(contacts)
         }
         
         
@@ -461,6 +469,7 @@ getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=sum, inPara
 #-----------------------------------------------------------------------
 # parse Rao Domains as GRange object.
 # If disjoined is true, it returns a disjoined subset of non-overlapping domains
+# Assumes coordinate in zero-based half open format.
 #-----------------------------------------------------------------------
 parseDomainsRao <- function(inFile, disjoin=TRUE, ...){
 
@@ -468,10 +477,9 @@ parseDomainsRao <- function(inFile, disjoin=TRUE, ...){
     raoDF = read.delim(inFile)
     chr = paste0("chr", raoDF$chr1)
 
-    up = raoDF[,"x1"]
-#~     down = raoDF[,"x2"]
-    # substract 1 bp from down coordinate to have inclusive interval ranges
-    down = raoDF[,"x2"] - 1
+    # add 1 bp to start coordinate to convert to one-based inclusive interval format used in GenomicRanges
+    up = raoDF[,"x1"] + 1
+    down = raoDF[,"x2"] 
     
     raoDomains = GRanges(chr, IRanges(up, down), ...)
     
@@ -516,7 +524,8 @@ parseRudanTADs <- function(inFile, disjoin=TRUE, sheet=1, ...){
     df = read.xls(inFile, sheet=sheet)
     
     # build GRanges object
-    gr = GRanges(df[,1], IRanges(df[,2], df[,3]), ...)
+    # add 1 bp to start coordinate to convert to one-based inclusive 
+    gr = GRanges(df[,1], IRanges(df[,2]+1, df[,3]), ...)
     
     if(disjoin){
         gr =  disjoin(gr)

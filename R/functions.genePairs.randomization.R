@@ -88,6 +88,59 @@ getSampleWeightsByDistAndEnhancers <- function(hitDF, tssGR, sourcePairs, ...){
 
 
 #-----------------------------------------------------------------------
+# returns sampling weights to sample from samp with probabilities observed in obs
+#
+#  obs  := vector of observed values according to which the sampling should be done (e.g distances observed for paralog gene pairs).
+#  population := vector of all values in the total population from which one wants to sample (e.g distances of all gene pairs) 
+#  breaks := breaks used for sampling resolution (see breaks argument in hist() function).
+#
+#-----------------------------------------------------------------------
+weightsByBin <- function(obs, population, breaks=50){
+        
+    # calculate the number of observation for nBin equal sized bins
+    hObs <- hist(obs, breaks=breaks, plot=FALSE)
+    
+    # get for each individual in the population the bin index
+    binPop <- .bincode(population, hObs$breaks, include.lowest=TRUE)
+    
+    # get counts per bin in the population
+    hPop <- hist(population, breaks=breaks, plot=FALSE)    
+
+    # define the counts per bin in the population as bias in the population
+    populationBias <- hPop$counts
+    
+    
+    # get the number of observed counts normalized to one as weight
+    # normalize the number of observed counts by the bias observed in the population 
+    weight <- hObs$counts[binPop] / hPop$counts[binPop] 
+    
+    # normalize the weights to sum up to 1
+    weightNormed <- weight / sum(weight)
+}
+
+#-----------------------------------------------------------------------
+# To sample random gene pairs get probability weights of all pairs 
+# according to the distribution of distances and linked enhancer in input
+# gene pair set
+#-----------------------------------------------------------------------
+weightsByBinDistAndEnhancers <- function(distWeight, sourcePairs, hitDF, tssGR){
+    
+    # get probability density for the number of linked enhancers
+    weightEH <- weightByEnhancers(tssGR, c(sourcePairs[,1], sourcePairs[,2]))
+    
+    # combine the probabilites from both gene pair partners by assuming independence
+    pairWeightEH <- ( weightEH[hitDF[,1]] * weightEH[hitDF[,2]] )
+    pairWeightEH <- pairWeightEH / sum(pairWeightEH)
+    
+    # combine the probabilities for linked enhancer and linear distance by multiplication by assuming independence
+    pairWeight <- ( pairWeightEH * distWeight ) 
+    pairWeight  <- pairWeight / sum(pairWeight)
+    
+    return(pairWeight)
+}
+
+
+#-----------------------------------------------------------------------
 # Get sampling weight only based on distance (or other column by "colName")
 #-----------------------------------------------------------------------
 getSampleWeightsByDist <- function(hitDF, sourcePairs, colName="dist", ...){
@@ -97,6 +150,20 @@ getSampleWeightsByDist <- function(hitDF, sourcePairs, colName="dist", ...){
     pairWeightDist = distDens(abs(hitDF[,colName]))
 
     # set prob of NAs to zero
+    pairWeightDist[is.na(pairWeightDist)] = 0
+    return(pairWeightDist / sum(pairWeightDist, na.rm=TRUE))
+}
+
+#-----------------------------------------------------------------------
+# Get sampling weight in log space
+#-----------------------------------------------------------------------
+getSampleWeightsByDistLog <- function(hitDF, sourcePairs, colName="dist", ...){
+
+    # get observed probabilty density of distances in real source pairs
+    distDens = approxfun(density(log10(abs(sourcePairs[,colName])), ...))
+    pairWeightDist = distDens(log10(abs(hitDF[,colName])))
+
+    # set prob of NAs to zero ( so they will not be sampled)
     pairWeightDist[is.na(pairWeightDist)] = 0
     return(pairWeightDist / sum(pairWeightDist, na.rm=TRUE))
 }

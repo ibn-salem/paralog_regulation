@@ -9,7 +9,7 @@
 #=======================================================================
 # parameters and input data files
 #=======================================================================
-VERSION="v03"
+VERSION="v04"
 
 chromFile = "data/hg19/hg19.genome"
 
@@ -39,11 +39,6 @@ PseudoGenesFiles = c(
 # essential genes
 OGEEdbFile="data/OGEEdb/9606_dataset348.txt"
 
-outPrefix=paste0("results/TAD_gene_distribution/", VERSION, ".TAD_gene_distribution.nonOverlppingTAD")
-WORKIMAGE_FILE=paste0(outPrefix, ".workspace.Rdata")
-
-# make directory if not exist already
-dir.create(dirname(outPrefix), showWarnings = FALSE)
 
 COL_REGIONS = brewer.pal(8, "Accent")
 COL_PAIRED = brewer.pal(12, "Paired")
@@ -55,7 +50,6 @@ COL_DARK2 = brewer.pal(8, "Dark2")
 COL_STRAND = brewer.pal(8, "Pastel1")[2:1]
 COL_DOMAIN=brewer.pal(12, "Set3")
 
-
 N_BINS=4
 N_BIN_LIST=c(4, 40)
 
@@ -64,5 +58,11 @@ RANDOM_SEED=13521
 WINDOW_SIZE = 400*10^3
 
 # take the center of a gene for overlap calculations
-GENE_COORDINATE_CENTER=FALSE
+GENE_COORDINATE_CENTER=TRUE
+
+outPrefix=paste0("results/TAD_gene_distribution/", VERSION, ".TAD_gene_distribution.nonOverlppingTAD")
+WORKIMAGE_FILE=paste0(outPrefix, ".workspace.Rdata")
+
+# make directory if not exist already
+dir.create(dirname(outPrefix), showWarnings = FALSE)
 

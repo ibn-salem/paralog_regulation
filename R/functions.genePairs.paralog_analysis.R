@@ -10,7 +10,7 @@
 # runs the basic paralog analysis for given input data. 
 # TODO: define COL2 and COL, MAX_DIST and some others...
 #-----------------------------------------------------------------------
-runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR, TAD, tissueName, HiClist, HiClistNorm, pairScoreFac=-1){
+runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR, genesGR, TAD, tissueName, HiClist, HiClistNorm, pairScoreFac=-1){
 
     
     #-------------------------------------------------------------------
@@ -20,18 +20,22 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
 
     # remove double entries of the form A-B and B-A
     paralogPairsUniqP = uniquePair(paralogPairs)
-    
+
+    # filter out overlapping gene pairs
+    nonOVL <- nonOverlappingGenePairs(paralogPairsUniqP, genesGR)
+    paralogPairsUniqPnonOVL <- paralogPairsUniqP[nonOVL,]
+
     # get for each gene only one unique pair, the one with highest similarity
     # this is computed by an maximum weight matching
-    paralogPairsWithDN = paralogPairs[!is.na(paralogPairs[,pairScoreCol]),]
-    paralogPairsUniqG = uniquePairPerGeneBySim(paralogPairsWithDN, pairScoreFac*paralogPairsWithDN[,pairScoreCol])
+    paralogPairsUniqPnonOVLWithDS = paralogPairsUniqPnonOVL[!is.na(paralogPairsUniqPnonOVL[,pairScoreCol]),]
+    
+    paralogPairsUniqPnonOVLUniqG = uniquePairPerGeneBySim(paralogPairsUniqPnonOVLWithDS, pairScoreFac*paralogPairsUniqPnonOVLWithDS[,pairScoreCol])
     
     # get only a unique pair order (one of A-B, B-A) form the unique pairs
-    paralogPairsUniqGuniqP = uniquePair(paralogPairsUniqG)
+    paralogPairsUniq = uniquePair(paralogPairsUniqPnonOVLUniqG)
     
     # subset of paralog pairs that are located on the same chromosome
-    allCisPairs = getCisPairs(paralogPairsUniqGuniqP, tssGR)
-    
+    allCisPairs = getCisPairs(paralogPairsUniq, tssGR)
     
     #-----------------------------------------------------------------------
     # annotate gene pairs
@@ -58,13 +62,10 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
     #-----------------------------------------------------------------------
 
     # get close cis pairs
-    closePairs = allCisPairs[abs(allCisPairs$dist) <= MAX_DIST & abs(allCisPairs$dist) > 0,] 
+    closePairs = allCisPairs[abs(allCisPairs$dist) <= MAX_DIST,] 
     
     # get distal pairs
     distalPairs = allCisPairs[abs(allCisPairs$dist) > DISTAL_MIN_DIST & abs(allCisPairs$dist) <= DISTAL_MAX_DIST,] 
-
-    # pairs with zero distance (artefact of annotation?)
-    zereDistPairs = allCisPairs[abs(allCisPairs$dist) == 0,]
 
 
     #-----------------------------------------------------------------------
@@ -73,17 +74,17 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
     nPairs = c(
         "paralogPairs"=nrow(paralogPairs), 
         "paralogPairsUniqP"=nrow(paralogPairsUniqP), 
-        "paralogPairsWithDN"=nrow(paralogPairsWithDN), 
-        "paralogPairsUniqG"=nrow(paralogPairsUniqG), 
-        "paralogPairsUniqGuniqP"=nrow(paralogPairsUniqGuniqP),
+        "paralogPairsUniqPnonOVL"=nrow(paralogPairsUniqPnonOVL), 
+        "paralogPairsUniqPnonOVLWithDS"=nrow(paralogPairsUniqPnonOVLWithDS), 
+        "paralogPairsUniqPnonOVLUniqG"=nrow(paralogPairsUniqPnonOVLUniqG), 
+        "paralogPairsUniq"=nrow(paralogPairsUniq),
         "allCisPairs"=nrow(allCisPairs),
-        "zereDistPairs"=nrow(zereDistPairs),
         "closePairs"=nrow(closePairs),
         "distalPairs"=nrow(distalPairs)
         )
+
     write.table(nPairs, file=paste0(outPrefix, ".paralog_pairs_filtering.txt"),
         sep="\t", quote=FALSE, col.names=FALSE)
-
 
     #-----------------------------------------------------------------------
     # Sample cis and dist pairs according to linear distance in paralog gene pairs
@@ -91,38 +92,51 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
     message("Start to sample random gene pairs...")
 
     # First sample randomly from all gnes
-    randPairs = bplapply(1:N_RAND, function(x){getRandomPairs(nrow(paralogPairsUniqGuniqP), names(tssGR))})
-    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
+    randPairs = bplapply(1:N_RAND, function(x){getRandomPairs(nrow(paralogPairsUniq), names(tssGR))})
+    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
         
     # filter for random pairs in Cis
     randPairsInCis = lapply(randPairs, getCisPairs, tssGR)
     randPairsInCis = lapply(randPairsInCis, addPairDist, tssGR)
     
+    #-----------------------------------------------------------------------
     # get all possible gene pairs within MAX_DIST bp
-    allCloseGenePairs = getAllGenePairs(tssGR, maxDist=MAX_DIST, minDist=1)
+    allCloseGenePairsOVL <- getAllGenePairs(tssGR, maxDist=MAX_DIST, minDist=1)
     
-    # get sample weights according distance
-    closeWeights = getSampleWeightsByDist(allCloseGenePairs, closePairs, adjust=DENSITY_BW_ADJUST)
-    
+    # filter out overlapping pairs
+    closeNonOVL <- nonOverlappingGenePairs(allCloseGenePairsOVL, genesGR, useIDs=TRUE)
+    allCloseGenePairs <- allCloseGenePairsOVL[closeNonOVL,]
+   
+    # get sample weights according to distance
+    closeDistBreaks <- seq(log10(1), log10(MAX_DIST), length.out=N_SAMPLING_BIN+1)
+    closeWeights <- weightsByBin(log10(abs(closePairs$dist)), log10(abs(allCloseGenePairs$dist)), breaks=closeDistBreaks)
+
     # sample gene pairs
     sampClosePairs = bplapply(1:N_RAND, function(x){ 
         sampleFromAllPairsByWeight(n=nrow(closePairs), hitDF=allCloseGenePairs, tssGR, weight=closeWeights)
         })
-    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
+    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
     
+    #-----------------------------------------------------------------------
     message("INFO: Start to collect all distal gene pairs...")
     # Now sample from all possible gene pairs within DISTAL_MIN_DIST - DISTAL_MAX_DIST bp
-    allDistalGenePairs = getAllGenePairs(tssGR, maxDist=DISTAL_MAX_DIST, minDist=DISTAL_MIN_DIST)
-    message("INFO: Finish to collect all distal gene pairs.")
+    allDistalGenePairsOVL <- getAllGenePairs(tssGR, maxDist=DISTAL_MAX_DIST, minDist=DISTAL_MIN_DIST)
+
+    message("INFO: Start to filter overlapping distal gene pairs...")
+    # filter out overlapping pairs
+    distalNonOVL <- nonOverlappingGenePairs(allDistalGenePairsOVL, genesGR, useIDs=TRUE)
+    allDistalGenePairs <- allDistalGenePairsOVL[distalNonOVL,]    
+    message("INFO: Finish to collect all non-overlapping distal gene pairs.")
     
-    # get sample weights according to distance
-    distalWeight = getSampleWeightsByDist(allDistalGenePairs, distalPairs, adjust=DENSITY_BW_ADJUST)
-    
+    # get sampling weights for distal pairs according to distance
+    distalBreaks <- seq(log10(DISTAL_MIN_DIST), log10(DISTAL_MAX_DIST), length.out=N_SAMPLING_BIN+1)
+    distalWeight <- weightsByBin(log10(abs(distalPairs$dist)), log10(abs(allDistalGenePairs$dist)), breaks=distalBreaks)
+
     # sample according to distance
     sampDistalPairs = bplapply(1:N_RAND, function(x){ 
         sampleFromAllPairsByWeight(n=nrow(distalPairs), hitDF=allDistalGenePairs, tssGR, weight=distalWeight)
         })
-    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
+    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
 
     #-----------------------------------------------------------------------
     # annotate sampled gene pairs
@@ -130,10 +144,10 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
 
     # make GRanges objects for cis paralog pairs and random paris on same chromosome
     sampClosePairsGR = bplapply(sampClosePairs, getPairAsGR, tssGR)
-    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
+    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
 
     sampClosePairsGR = bplapply(sampClosePairsGR, addWithinSubject, TAD, tadName)
-    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
+    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
 
     # assign annotation in GRanges object to gene pair data.frames
     for (i in seq(N_RAND)){
@@ -147,6 +161,9 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
     sampDistalPairsCombined <- do.call("rbind", sampDistalPairs)
 
     # add Hi-C contact frequencies
+    sampClosePairsCombined = addHiCfreq(sampClosePairsCombined, tssGR, HiClist)
+    sampClosePairsCombined = addHiCfreq(sampClosePairsCombined, tssGR, HiClistNorm, label="HiCnorm")
+    
     sampDistalPairsCombined = addHiCfreq(sampDistalPairsCombined, tssGR, HiClist)    
     sampDistalPairsCombined = addHiCfreq(sampDistalPairsCombined, tssGR, HiClistNorm, label="HiCnorm")
 
@@ -188,12 +205,12 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
     # fraction of paralog pairs on same chromosom
     #-----------------------------------------------------------------------
     pdf(paste0(outPrefix, ".paralogPairs_on_same_chrom.barplot.pdf"), width=3.5)
-        paraPercent = 100 * nrow(allCisPairs) / nrow(paralogPairsUniqGuniqP)
+        paraPercent = 100 * nrow(allCisPairs) / nrow(paralogPairsUniq)
         randPercent = sapply(randPairsInCis, nrow) * 100 / nrow(randPairs[[1]])
         height=c(paraPercent, mean(randPercent))
         par(cex=1.5, lwd=2)
         bp = my.barplot(height, 
-            names=paste0(c("Paralogs\n (n=", "Random pairs\n (n="), c(nrow(paralogPairsUniqGuniqP), paste0(N_RAND, "x",nrow(paralogPairsUniqGuniqP))), c(")", ")")), 
+            names=paste0(c("Paralogs\n (n=", "Random pairs\n (n="), c(nrow(paralogPairsUniq), paste0(N_RAND, "x",nrow(paralogPairsUniq))), c(")", ")")), 
             addValues=TRUE, col=COL_RAND,
             main=paste(tissueName, "gene pairs\n on same\n chromosome"), 
             ylab="%")
@@ -301,32 +318,43 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
     #-----------------------------------------------------------------------
     # Analyse HiC ontact frequencies
     message("Start to analyse Hi-C contacts...")
-    
     # Make data.frame for plotting with ggplot2
+    plotDFcloseHiC = data.frame(
+            group = rep(c("paralogs", "sampled"), c(nrow(closePairs), nrow(sampClosePairsCombined))),
+            HiCraw = c(closePairs[,"HiCfreq"], sampClosePairsCombined[,"HiCfreq"]),
+            HiCnorm = c(closePairs[,"HiCnorm"], sampClosePairsCombined[,"HiCnorm"]),
+            dist=abs(c(closePairs[,"dist"], sampClosePairsCombined[,"dist"]))/10^3
+        )
+    
+    plotDFcloseHiC$HiCrawNoZero = plotDFcloseHiC$HiCraw
+    plotDFcloseHiC$HiCrawNoZero[plotDFcloseHiC$HiCraw == 0] = NA
+    plotDFcloseHiC$HiCnormNoZero = plotDFcloseHiC$HiCnorm
+    plotDFcloseHiC$HiCnormNoZero[plotDFcloseHiC$HiCnorm == 0] = NA
+    
     breaks = seq(DISTAL_MIN_DIST, DISTAL_MAX_DIST, length.out=10) / 10^3
     
-    plotDF = data.frame(
+    plotDFdistalHiC = data.frame(
             group = c(rep("paralogs", nrow(distalPairs)), rep("sampled", nrow(sampDistalPairsCombined))),
             HiCraw = c(distalPairs[,"HiCfreq"], sampDistalPairsCombined[,"HiCfreq"]),
             HiCnorm = c(distalPairs[,"HiCnorm"], sampDistalPairsCombined[,"HiCnorm"]),
             dist=abs(c(distalPairs[,"dist"], sampDistalPairsCombined[,"dist"]))/10^3,
             distBin=as.factor(breaks[.bincode(abs(c(distalPairs[,"dist"], sampDistalPairsCombined[,"dist"]))/10^3, breaks)])
         )
-    plotDF$HiCrawNoZero = plotDF$HiCraw
-    plotDF$HiCrawNoZero[plotDF$HiCraw == 0] = NA
-    plotDF$HiCnormNoZero = plotDF$HiCnorm
-    plotDF$HiCnormNoZero[plotDF$HiCnorm == 0] = NA
+    plotDFdistalHiC$HiCrawNoZero = plotDFdistalHiC$HiCraw
+    plotDFdistalHiC$HiCrawNoZero[plotDFdistalHiC$HiCraw == 0] = NA
+    plotDFdistalHiC$HiCnormNoZero = plotDFdistalHiC$HiCnorm
+    plotDFdistalHiC$HiCnormNoZero[plotDFdistalHiC$HiCnorm == 0] = NA
 
     #------------------------------------------------------------------------
     # Hi-C raw
     xlabels=paste0(c("Paralogs", "Sampled"), 
-        "\n n=", applyToSubset(plotDF, function(v) sum(!is.na(v)), "HiCraw", "group"), 
-        "\n med=", signif(applyToSubset(plotDF, median, "HiCraw", "group", na.rm=TRUE), 3),
-        "\n avg=", signif(applyToSubset(plotDF, mean, "HiCraw", "group", na.rm=TRUE), 3)
+        "\n n=", applyToSubset(plotDFdistalHiC, function(v) sum(!is.na(v)), "HiCraw", "group"), 
+        "\n med=", signif(applyToSubset(plotDFdistalHiC, median, "HiCraw", "group", na.rm=TRUE), 3),
+        "\n avg=", signif(applyToSubset(plotDFdistalHiC, mean, "HiCraw", "group", na.rm=TRUE), 3)
         )
-    ws.test = wilcox.test(plotDF[,"HiCraw"] ~ plotDF[,"group"])
+    ws.test = wilcox.test(plotDFdistalHiC[,"HiCraw"] ~ plotDFdistalHiC[,"group"])
     
-    p = ggplot(plotDF, aes(x=group, y=HiCraw, color=group)) +
+    p = ggplot(plotDFdistalHiC, aes(x=group, y=HiCraw, color=group)) +
         geom_boxplot(lwd=1.5) + scale_y_log10() + annotation_logticks(sides="l") +
         scale_color_manual(values=COL, guide_legend(title = "")) +
         theme_bw() + theme(text = element_text(size=20), legend.position="none") + 
@@ -338,13 +366,13 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
     #------------------------------------------------------------------------
     # Hi-C normed
     xlabels=paste0(c("Paralogs", "Sampled"), 
-        "\n n=", applyToSubset(plotDF, function(v) sum(!is.na(v)), "HiCnorm", "group"), 
-        "\n med=", signif(applyToSubset(plotDF, median, "HiCnorm", "group", na.rm=TRUE), 3),
-        "\n avg=", signif(applyToSubset(plotDF, mean, "HiCnorm", "group", na.rm=TRUE), 3)
+        "\n n=", applyToSubset(plotDFdistalHiC, function(v) sum(!is.na(v)), "HiCnorm", "group"), 
+        "\n med=", signif(applyToSubset(plotDFdistalHiC, median, "HiCnorm", "group", na.rm=TRUE), 3),
+        "\n avg=", signif(applyToSubset(plotDFdistalHiC, mean, "HiCnorm", "group", na.rm=TRUE), 3)
         )
-    ws.test = wilcox.test(plotDF[,"HiCnorm"] ~ plotDF[,"group"])
+    ws.test = wilcox.test(plotDFdistalHiC[,"HiCnorm"] ~ plotDFdistalHiC[,"group"])
     
-    p = ggplot(plotDF, aes(x=group, y=HiCnorm, color=group))  +
+    p = ggplot(plotDFdistalHiC, aes(x=group, y=HiCnorm, color=group))  +
         geom_boxplot(lwd=1.5) + scale_y_log10(breaks=trans_breaks("log10", function(y) 10^y), labels=trans_format("log10", math_format(10^.x))) +# annotation_logticks(sides="l") + 
         scale_color_manual(values=COL, guide_legend(title = "")) +
         theme_bw() + theme(text = element_text(size=20), legend.position="none") + 
@@ -355,13 +383,13 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
     #------------------------------------------------------------------------
     # Hi-C raw without zero Hi-C counts
     xlabels=paste0(c("Paralogs", "Sampled"), 
-        "\n n=", applyToSubset(plotDF, function(v) sum(!is.na(v)), "HiCrawNoZero", "group"), 
-        "\n med=", signif(applyToSubset(plotDF, median, "HiCrawNoZero", "group", na.rm=TRUE), 3),
-        "\n avg=", signif(applyToSubset(plotDF, mean, "HiCrawNoZero", "group", na.rm=TRUE), 3)
+        "\n n=", applyToSubset(plotDFdistalHiC, function(v) sum(!is.na(v)), "HiCrawNoZero", "group"), 
+        "\n med=", signif(applyToSubset(plotDFdistalHiC, median, "HiCrawNoZero", "group", na.rm=TRUE), 3),
+        "\n avg=", signif(applyToSubset(plotDFdistalHiC, mean, "HiCrawNoZero", "group", na.rm=TRUE), 3)
         )
-    ws.test = wilcox.test(plotDF[,"HiCrawNoZero"] ~ plotDF[,"group"])
+    ws.test = wilcox.test(plotDFdistalHiC[,"HiCrawNoZero"] ~ plotDFdistalHiC[,"group"])
     
-    p = ggplot(plotDF, aes(x=group, y=HiCrawNoZero, color=group))  +
+    p = ggplot(plotDFdistalHiC, aes(x=group, y=HiCrawNoZero, color=group))  +
         geom_boxplot(lwd=1.5) + scale_y_log10() + annotation_logticks(sides="l") +
         scale_color_manual(values=COL, guide_legend(title = "")) +
         theme_bw() + theme(text = element_text(size=20), legend.position="none") + 
@@ -372,13 +400,13 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
     #------------------------------------------------------------------------
     # Hi-C normed without zero Hi-C counts
     xlabels=paste0(c("Paralogs", "Sampled"), 
-        "\n n=", applyToSubset(plotDF, function(v) sum(!is.na(v)), "HiCnormNoZero", "group"), 
-        "\n med=", signif(applyToSubset(plotDF, median, "HiCnormNoZero", "group", na.rm=TRUE), 3),
-        "\n avg=", signif(applyToSubset(plotDF, mean, "HiCnormNoZero", "group", na.rm=TRUE), 3)
+        "\n n=", applyToSubset(plotDFdistalHiC, function(v) sum(!is.na(v)), "HiCnormNoZero", "group"), 
+        "\n med=", signif(applyToSubset(plotDFdistalHiC, median, "HiCnormNoZero", "group", na.rm=TRUE), 3),
+        "\n avg=", signif(applyToSubset(plotDFdistalHiC, mean, "HiCnormNoZero", "group", na.rm=TRUE), 3)
         )
-    ws.test = wilcox.test(plotDF[,"HiCnormNoZero"] ~ plotDF[,"group"])
+    ws.test = wilcox.test(plotDFdistalHiC[,"HiCnormNoZero"] ~ plotDFdistalHiC[,"group"])
     
-    p = ggplot(plotDF, aes(x=group, y=HiCnormNoZero, color=group)) +
+    p = ggplot(plotDFdistalHiC, aes(x=group, y=HiCnormNoZero, color=group)) +
         geom_boxplot(lwd=1.5) + scale_y_log10(breaks=trans_breaks("log10", function(y) 10^y), labels=trans_format("log10", math_format(10^.x))) + 
         scale_color_manual(values=COL, guide_legend(title = "")) +
         theme_bw() + theme(text = element_text(size=20), legend.position="none") + 
@@ -386,6 +414,19 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
         labs(y="log2(observed / expected) Hi-C counts", x="", title=paste0("p = ", signif(ws.test$p.value, 3))) +
         scale_x_discrete(labels=xlabels )
     ggsave(p, file=paste0(outPrefix, ".distal_pairs.Hi-C_normalized_contacts_noZero.ggboxplot.pdf"), width=3.5)
+
+    #------------------------------------------------------------------------
+    # plot Hi-C contacts versus genomic distance
+    
+    p1 <- dotplotWithDensityLogXY(revDF(plotDFcloseHiC), "dist", "HiCraw", "group", COL)
+    p2 <- dotplotWithDensityLogXY(revDF(plotDFcloseHiC), "dist", "HiCnorm", "group", COL)
+    
+    p3 <- dotplotWithDensityLogXY(revDF(plotDFdistalHiC), "dist", "HiCraw", "group", COL)
+    p4 <- dotplotWithDensityLogXY(revDF(plotDFdistalHiC), "dist", "HiCnorm", "group", COL)
+
+    pdf(paste0(outPrefix, ".close_and_distal_pairs.Hi-C_vs_dist_all.ggboxplot.pdf"), w=12, h=12)
+        do.call(grid.arrange, list(p1,p2,p3,p4)) 
+    dev.off()
     
 }
 #~ outPrefix=paste0(outPrefix, ".Mouse")

@@ -192,6 +192,48 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
     orGenes = getBM(attributes=geneAttributes, mart=ensemblGRCh37, filters=orFilters, values=orValues)
     save(orGenes, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.orGenes.RData"))    
 
+    #-------------------------------------------------------------------
+    # get UniProt/TrEMBL Accession to ENSG mapping
+    #-------------------------------------------------------------------
+    uniPTrEMBLAttributes <- c("uniprot_sptrembl", "ensembl_gene_id")
+    uniPTrEMBLToEnsgDF = getBM(attributes=uniPTrEMBLAttributes, mart=ensemblGRCh37, 
+        filters="with_uniprotsptrembl", values=TRUE)
+    
+    # save or load downloaded data 
+    save(uniPTrEMBLToEnsgDF, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.uniPTrEMBLToEnsgDF.RData"))
+    
+    # take only unique uniPTrEMBL IDs
+    uniPTrEMBLToEnsgDFuniq <- uniPTrEMBLToEnsgDF[!duplicated(uniPTrEMBLToEnsgDF$uniprot_sptrembl),]
+    
+    # convert data.frame into a named vector
+    uniPTrEMBLToENSG <- uniPTrEMBLToEnsgDFuniq[,2]
+    names(uniPTrEMBLToENSG) <- uniPTrEMBLToEnsgDFuniq[,1]
+    
+    # save or load downloaded data 
+    save(uniPTrEMBLToENSG, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.uniPTrEMBLToENSG.RData"))
+    
+    #-------------------------------------------------------------------
+    # get UniProt/SwissProt Accession to ENSG mapping
+    #-------------------------------------------------------------------
+    uniPSwissAttributes <- c("uniprot_swissprot_accession", "ensembl_gene_id")
+    uniPSwissToEnsgDF = getBM(attributes=uniPSwissAttributes, mart=ensemblGRCh37)
+    
+    # filter for those with UniProt/Swiss prot Accession
+    uniPSwissToEnsgDF <- uniPSwissToEnsgDF[uniPSwissToEnsgDF[,1] != "",]
+    
+    # save or load downloaded data 
+    save(uniPSwissToEnsgDF, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.uniPSwissToEnsgDF.RData"))
+    
+    # take only unique uniPSwissT IDs 
+    uniPSwissToEnsgDFuniq <- uniPSwissToEnsgDF[!duplicated(uniPSwissToEnsgDF$uniprot_swissprot_accession),]
+    
+    # convert data.frame into a named vector
+    uniPSwissToEns <- uniPSwissToEnsgDFuniq[,2]
+    names(uniPSwissToEns) <- uniPSwissToEnsgDFuniq[,1]
+    
+    # save or load downloaded data 
+    save(uniPSwissToEns, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.uniPSwissToEns.RData"))
+    
 # if USE_LOCAL_DATA_ENSEMBL, just load the saved data from local hard disc
 }else{
     message("Start to load ENSEMBL data from device...")
@@ -205,6 +247,10 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.allDogGenes.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogPairsDogALL.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.orGenes.RData"))
+    load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.uniPTrEMBLToEnsgDF.RData"))
+    load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.uniPTrEMBLToENSG.RData"))
+    load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.uniPSwissToEnsgDF.RData"))
+    load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.uniPSwissToEns.RData"))
     message("Finished.")
 }
 
@@ -266,6 +312,9 @@ rownames(genesMouse) <- genesMouse$ensembl_gene_id
 tssGRmouse = getTssGRfromENSEMBLGenes(genesMouse, seqInfoMouse, colNames=c("external_gene_name"))
 tssGRmouse$gene_size = genesMouse[names(tssGRmouse), "end_position"] - genesMouse[names(tssGRmouse), "start_position"]
 
+# make GRanges object for all known prot coding genes
+genesGRmouse = sort(getGenesGR(genesMouse, seqInfoMouse, annotCols=c("external_gene_name")), ignore.strand=TRUE)
+
 # same for DOG:
 
 # parse seqInfo object
@@ -281,10 +330,17 @@ rownames(genesDog) <- genesDog$ensembl_gene_id
 tssGRdog = getTssGRfromENSEMBLGenes(genesDog, seqInfoDog, colNames=c("external_gene_name"))
 tssGRdog$gene_size = genesDog[names(tssGRdog), "end_position"] - genesDog[names(tssGRdog), "start_position"]
 
+# make GRanges object for all known prot coding genes
+genesGRdog = sort(getGenesGR(genesDog, seqInfoDog, annotCols=c("external_gene_name")), ignore.strand=TRUE)
+
 # combine tssGR's form all species to list
 speciesTssGR <- list(
     "mmusculus" = tssGRmouse,
     "cfamiliaris" = tssGRdog
+)
+speciesGenesGR <- list(
+    "mmusculus" = genesGRmouse,
+    "cfamiliaris" = genesGRdog
 )
 
 #-------------------------------------------------------------------
@@ -405,3 +461,9 @@ nonParalogTable = data.frame(Ensembl_gene_ID=nonParalogs, gene_size=tssGR[nonPar
 write.table(paralogTable, col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".ENSG_size_copies.paralogs.txt"), sep="\t", quote=FALSE)
 
 write.table(nonParalogTable, col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".ENSG_size_copies.nonParalogs.txt"), sep="\t", quote=FALSE)
+
+#=======================================================================
+# Filter for unique non-overlapping pairs and map to UniProt symbols
+#=======================================================================
+paralogsUniProt <- uniPSwissToEnsgDF[uniPSwissToEnsgDF$ensembl_gene_id %in% paralogs,]
+write.table(paralogsUniProt, col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogsUniProt.txt"), sep="\t", quote=FALSE)

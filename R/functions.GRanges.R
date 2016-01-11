@@ -69,6 +69,31 @@ getTssGRfromENSEMBLGenes <- function(genes, seqInfo, colNames=c("hgnc_symbol", "
 
 }
 
+#-----------------------------------------------------------------------
+# create a Grange object for uniue gene centers
+#-----------------------------------------------------------------------
+getCenterAsGR <- function(genes, seqInfo, colNames=c("hgnc_symbol", "status", "gene_biotype")){
+    
+    if (length(unique(genes$ensembl_gene_id)) != length(genes$ensembl_gene_id)){
+        message("WARNING: ENSG IDs are not unique!")
+    }
+    
+    onPosStrand <- genes$strand == 1
+
+    # get center as midpoint between start and end of the gene 
+    center = genes[, "start_position"] + round((genes[, "end_position"] - genes[, "start_position"]) / 2)
+
+    gr = GRanges(
+        paste0("chr", genes$chromosome_name),
+        IRanges(center, center),
+        strand = ifelse(onPosStrand, '+', '-'), 
+        seqinfo=seqInfo
+        )
+    names(gr) = genes$ensembl_gene_id
+    mcols(gr) = subset.data.frame(genes, select=colNames)
+    return(gr)
+}
+
 
 #-----------------------------------------------------------------------
 # create a Grange object for uniue TSS

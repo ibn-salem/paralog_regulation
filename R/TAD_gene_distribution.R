@@ -13,6 +13,8 @@ require(stringr)        # for functions like paste0()
 require(GenomicRanges)  # for GRanges objects
 require(ggplot2)        # for nice plots
 require(xtable)         # to directly output latex tables
+require(RColorBrewer)   # for nice colors
+require(BiocParallel)   # for parallel computing
 
 #-----------------------------------------------------------------------
 # Load parameters from external script
@@ -20,7 +22,7 @@ require(xtable)         # to directly output latex tables
 # read parameter script location from command-line argument
 #~ args <- commandArgs(trailingOnly = TRUE)
 #~ PARAM_SCRIPT=args[1]
-PARAM_SCRIPT="R/TAD_gene_distribution.param.v03.R"
+PARAM_SCRIPT="R/TAD_gene_distribution.param.v04.R"
 source(PARAM_SCRIPT)
 
 #-----------------------------------------------------------------------
@@ -42,6 +44,12 @@ source("R/data.ensembl.R")
 #=======================================================================
 # parse input data
 #=======================================================================
+
+if (!GENE_COORDINATE_CENTER){
+    protCodingGR <- getTssGRfromENSEMBLGenes(genes, seqInfoRealChrom, colNames=c("hgnc_symbol"))
+}else{
+    protCodingGR <- getCenterAsGR(genes, seqInfoRealChrom, colNames=c("hgnc_symbol"))
+}
 
 # parse TAD data sets as list of GRanges
 RaoTADs = lapply(RaoDomainFiles, parseDomainsRao, disjoin=FALSE, seqinfo=seqInfo)
@@ -66,7 +74,7 @@ nonOvlpTADs <- lapply(rawTADs, filterForNonOverlapping)
 names(nonOvlpTADs) <- paste0(names(nonOvlpTADs), "_nonOVLP")
 
 # count number of genes within each TAD to get gene density:
-genesPerTAD <- lapply(rawTADs, countOverlaps, tssGR)
+genesPerTAD <- lapply(rawTADs, countOverlaps, protCodingGR)
 sizePerTAD <- lapply(rawTADs, width)
 genesPerMbPerTAD <- mapply(function(g,s) g/(s/10^6), genesPerTAD, sizePerTAD)
 
@@ -94,34 +102,61 @@ for (tadName in names(allTADs)){
 #-----------------------------------------------------------------------
 OGEE <- read.table(OGEEdbFile, header=TRUE, comment.char="", sep="\t")
 essentialIDs <- OGEE[OGEE$essential == "Y", "locus"]
-geneIDX <- match(as.character(essentialIDs), names(tssGR))
-essentialGenes = tssGR[geneIDX[!is.na(geneIDX)]]
+geneIDX <- match(as.character(essentialIDs), names(protCodingGR))
+essentialGenes = protCodingGR[geneIDX[!is.na(geneIDX)]]
 
+geneIDXfull <- match(as.character(essentialIDs), names(genesGR))
+essentialGenesFull = genesGR[geneIDXfull[!is.na(geneIDXfull)]]
 #-----------------------------------------------------------------------
-# parse pseudo genes
+# parse pseudo genes as TSS or center coordinate
 #-----------------------------------------------------------------------
-parsePsg <- function(inFile){
+parsePsgCoord <- function(inFile, useCenter=FALSE){
     
     d = read.table(inFile, header=TRUE)
-    gr = GRanges(
+
+    # build GRanges object
+    wholeGeneGR <- GRanges(
         d$Chromosome,
         IRanges(d$Start, d$End),
         strand = d$Strand, 
         names = d$Pseudogene_id,
         d[,c("Biotype", "Parent_gene", "Parent_transcript", "Parent_name")],
         seqinfo=seqInfo
-        )    
+        )
+        
+    # if useCenter take the center point coordinate otherwise take only the start coordinate
+    if(useCenter){
+        gr <- resize(wholeGeneGR, 1, fix="center", ignore.strand=FALSE)
+    }else{
+        gr <- resize(wholeGeneGR, 1, fix="start", ignore.strand=FALSE)
+    }
+    
+    return(gr)
 }
 
 # parse the pseudogenes
-PsgList = lapply(PseudoGenesFiles, parsePsg)
+PsgList = lapply(PseudoGenesFiles, parsePsgCoord, useCenter=GENE_COORDINATE_CENTER)
 
-#~ regionList = list(
-#~     "Non-coding exon" = ncExonGR,
-#~     "Coding exon" = codingExonGR,    
-#~     "Intron" = intronGR,    
-#~     "Intergenic" = intergenicGR
-#~ )
+#-----------------------------------------------------------------------
+# parse pseudo genes as TSS or center coordinate
+#-----------------------------------------------------------------------
+parsePsg <- function(inFile){
+    
+    d <- read.table(inFile, header=TRUE)
+
+    # build GRanges object
+    gr <- wholeGeneGR <- GRanges(
+        d$Chromosome,
+        IRanges(d$Start, d$End),
+        strand = d$Strand, 
+        names = d$Pseudogene_id,
+        d[,c("Biotype", "Parent_gene", "Parent_transcript", "Parent_name")],
+        seqinfo=seqInfo
+        )
+    return(gr)
+}
+# parse the pseudogenes
+PsgListFull = lapply(PseudoGenesFiles, parsePsg)
 
 #-----------------------------------------------------------------------
 # combine all types of genes
@@ -129,25 +164,29 @@ PsgList = lapply(PseudoGenesFiles, parsePsg)
 
 # list of GRs of TSS of gene types of interest to be counted inside and outside of the TADs
 #~ geneTypeTssList = c(
-#~     list("protGenes"=tssGR), 
+#~     list("protGenes"=protCodingGR), 
 #~     lapply(c(list("lincRNA"=lincRNAsGR), PsgList), resize, width=1, fix="start")
 #~     )
 geneTypeTssList = c(
-    list("essentialGenes"=essentialGenes, "protGenes"=tssGR), 
+    list("essentialGenes"=essentialGenes, "protGenes"=protCodingGR), 
     lapply(
         list("Psg_non-TS"=c(PsgList[["Psg_proc_non-TS"]], PsgList[["Psg_dup_non-TS"]])), 
         resize, width=1, fix="start")
     )
 
-#~ # separate by chrom
-#~ geneTypePerChormList <- bplapply(geneTypeTssList,
-#~     function(reg){
-#~         chrList <- GRangesList(lapply(seqlevels(reg), function(chr){
-#~             reg[seqnames(reg) == chr]
-#~         }))
-#~         names(chrList) <- seqlevels(reg)
-#~         return(chrList)
-#~     })
+geneTypeFullList = c(
+    list(
+    "essentialGenes"=essentialGenesFull, 
+    "protGenes"=genesGR,
+    "Psg_non-TS"=c(PsgListFull[["Psg_proc_non-TS"]], PsgListFull[["Psg_dup_non-TS"]]))
+    )
+
+geneTypeCoverage <- lapply(geneTypeFullList, function(gr){
+    list(
+        "+"=coverage(gr[strand(gr) == "+"]),
+        "-"=coverage(gr[strand(gr) == "-"])
+    )
+})
 
 
 #-----------------------------------------------------------------------
@@ -174,7 +213,7 @@ TADstats = round(data.frame(
     "sd_size" = sapply(sapply(allTADs, width), sd) / 10^3, 
     "median_size" = sapply(sapply(allTADs, width), median) / 10^3, 
     "percent_genome" = sapply(allTADs, fractionOfGenome),
-    "avg_genes" = sapply(allTADs, function(tadGR) mean(countOverlaps(tadGR, tssGR)))
+    "avg_genes" = sapply(allTADs, function(tadGR) mean(countOverlaps(tadGR, protCodingGR)))
     ), 2)
 row.names(TADstats) = names(allTADs)
 
@@ -196,6 +235,48 @@ RegStats = round(data.frame(
     ), 2)
     
 write.table(RegStats, paste0(outPrefix, ".geneTypeTssList_statistics.csv"), sep="\t", quote=FALSE, col.names=NA)
+
+#-----------------------------------------------------------------------
+# Calculate the coverage along TADs of strand separated gene types
+#-----------------------------------------------------------------------
+# iterate over bin numbers:
+for (nBin in N_BIN_LIST){
+    
+    # nBin=40
+    summaryTab = data.frame()
+        
+    # Iterate over each set of TADs
+    for (TADname in names(allTADs)) {
+#~     for (TADname in c("Rao_GM12878")) {
+#~     for (TADname in c("Rao_GM12878_nonOverlapping", "Rao_GM12878")) {
+        
+        #TADname = "Rao_GM12878"
+        TAD = allTADs[[TADname]]
+        
+        # resize TADs by +-50% and divide them into equal sized bins
+        TADreg = TAD
+        ranges(TADreg) = IRanges(start(TAD) - .5 * width(TAD), end(TAD) + .5 * width(TAD))
+        
+        # drop TADs that extends out of the chromosome space
+        withinChrom = width(TADreg) == width(trim(TADreg))
+        TADreg = TADreg[withinChrom]
+        
+        # make nBin equal sized bins for each TAD
+        TADbins = tile(TADreg, n=nBin)
+        seqinfo(TADbins) <- seqInfo
+        
+        # transpose the list to have always the i-th bin together
+        TADbinsList = transposeBinList(TADbins, nBin)
+        TADbinsSize = width(TADbinsList[[1]])
+    
+        # get bins arround TAD boundaries
+        BoundaryBins = binsAroundTADboundaries(TAD, windowSize=WINDOW_SIZE, nbins=nBin)
+        message("INFO: Finished calculation of bins.")
+    
+        # transform bin list to get each i-th bin together
+        boundaryBinList = transposeBinList(BoundaryBins, nBin)
+    
+
 
 #-----------------------------------------------------------------------
 # Counts the number of overlaps of qurey regions separated by + and - strand 
@@ -238,7 +319,7 @@ percents <- counts / nGenes * 100
 
 # get the total number of genes per type
 nGenesTotal <- sapply(geneTypeTssList, length)
-    
+
 # construct some factor object to better handle the plotting
 geneTypeFactor <- factor(names(geneTypeTssList), names(geneTypeTssList), labels=paste0(names(geneTypeTssList), "\nn = ", nGenesTotal))
 TadFactor <- factor(names(rawTADs), names(rawTADs))

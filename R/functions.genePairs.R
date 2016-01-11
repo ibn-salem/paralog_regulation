@@ -201,6 +201,53 @@ getAdjacentPairs <- function(tssGR){
 }
 
 #-----------------------------------------------------------------------
+# test if gene pairs are non-overlapping
+#-----------------------------------------------------------------------
+nonOverlappingGenePairs <- function(genePairs, genesGR, useIDs=FALSE){
+    
+    genesHitDF <- as.data.frame(findOverlaps(genesGR, genesGR))
+    ovl <- containsGenePairs(genePairs, negPairs=genesHitDF, gPidx=useIDs, nPidx=TRUE, gr=genesGR)
+    return( ! ovl )
+    
+}
+
+
+#-----------------------------------------------------------------------
+# filter gene pairs by negative pair set
+#-----------------------------------------------------------------------
+containsGenePairs <- function(genePairs, negPairs, gPidx=FALSE, nPidx=FALSE, gr=NULL){
+    
+    # take either the index directly or get the index from the GRange object
+    if (gPidx){
+        gP1 = genePairs[,1]
+        gP2 = genePairs[,2]
+    }else{
+        gP1 <- match(genePairs[,1], names(gr))
+        gP2 <- match(genePairs[,2], names(gr))
+    }
+    if (nPidx){
+        nP1 = negPairs[,1]
+        nP2 = negPairs[,2]
+    }else{
+        nP1 <- match(negPairs[,1], names(gr))
+        nP2 <- match(negPairs[,2], names(gr))
+    }
+    
+    # sort pairs according to index
+    gPmin <- apply(cbind(gP1, gP2), 1, min)
+    gPmax <- apply(cbind(gP1, gP2), 1, max)
+
+    nPmin <- apply(cbind(nP1, nP2), 1, min)
+    nPmax <- apply(cbind(nP1, nP2), 1, max)
+    
+    # combine id of first and second to get unique ID per pair
+    gPid <- paste(gPmin, gPmax, sep="|")
+    nPid <- paste(nPmin, nPmax, sep="|")
+
+    inNeg <- gPid %in% nPid
+}
+
+#-----------------------------------------------------------------------
 # function to add the information if orthologs are directly adjacent to each other
 #-----------------------------------------------------------------------
 orthologsAdjacent <- function(gP, speciesLabel, orthologsSpeciesList, tssGRspecies){
@@ -604,13 +651,13 @@ duplicated.random = function(x, incomparables = FALSE, ...)
 #-----------------------------------------------------------------------
 # Adds Hi-C contact frequencies to a gene pair data set
 #-----------------------------------------------------------------------
-addHiCfreq <- function(genePair, tssGR, HiClist, label="HiCfreq", inParallel=TRUE){
+addHiCfreq <- function(genePair, tssGR, HiClist, label="HiCfreq", ...){
     
     genePair[,label] = getInteractionsMulti(
             tssGR[genePair[,1]], 
             tssGR[genePair[,2]], 
             HiClist,
-            inParallel=inParallel)
+            ...)
     return(genePair)
 }
 

@@ -519,7 +519,7 @@ dotplotWithDensityLogXY <- function(plotDF, xvar, yvar, zvar, COL=c("orange", "p
     scatter <- ggplot(plotDF,aes_string(xvar, yvar)) + 
       geom_point(aes_string(color=zvar), alpha=ALPHA) + scale_x_log10() + scale_y_log10() + 
       scale_color_manual(values = COL) + theme_bw() + 
-      theme(legend.position=c(1,1),legend.justification=c(-.1,-.1), plot.margin =rep(grid::unit(c(0,0,1,1), "cm"),4))  
+      theme(legend.position=c(1,1),legend.justification=c(-.01,-.01), plot.margin =rep(grid::unit(c(0,0,1,1), "cm"),4))  
     
     #marginal density of x - plot on top
     plot_top <- ggplot(plotDF, aes_string(xvar, fill=zvar)) + 
@@ -543,6 +543,13 @@ dotplotWithDensityLogXY <- function(plotDF, xvar, yvar, zvar, COL=c("orange", "p
 # save the return value of arrangeGrob 
 #-----------------------------------------------------------------------
 grobSave <- ggplot2::ggsave; body(ggsave) <- body(ggplot2::ggsave)[-2]
+
+#-----------------------------------------------------------------------
+# reverse a data.frame row-wise. 
+#-----------------------------------------------------------------------
+revDF <- function(df){
+    return(df[nrow(df):1,])
+}
 
 #-----------------------------------------------------------------------
 # A very simple heatmap plot of matirx like objects
