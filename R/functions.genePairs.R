@@ -422,6 +422,74 @@ addRelativeEnhancerPosition <- function(genePairs, tssGR, gene2ehID, ehGR, colNa
     
 }
 
+#-----------------------------------------------------------------------
+# for a set of gene pairs (in ENSG) add binary vector indicating same annotaion for each annotation column
+#-----------------------------------------------------------------------
+addCommonAnnotation <- function(genePair, tssGR, columns=c("comp", "subcomp")){
+    
+    for (colStr in columns){
+        genePair[,paste0("common_", colStr)] = mcols(tssGR[genePair[,1]])[, colStr] == mcols(tssGR[genePair[,2]])[, colStr]
+    }
+    return(genePair)
+}
+
+#-----------------------------------------------------------------------
+# adds information of common compartment to gene pair data.frame
+#-----------------------------------------------------------------------
+addCommonCompartment <- function(genePair, tssGR, compGR, subCompGR){
+
+    # get compartment for each gene in the pairs
+    g1Hit <- findOverlaps(tssGR[genePair[,1]], subCompGR)
+    g2Hit <- findOverlaps(tssGR[genePair[,2]], subCompGR)
+    g1Comp <- rep(NA, nrow(genePair))
+    g2Comp <- rep(NA, nrow(genePair))
+    g1Comp[queryHits(g1Hit)] <- subCompGR[subjectHits(g1Hit)]$comp
+    g2Comp[queryHits(g2Hit)] <- subCompGR[subjectHits(g2Hit)]$comp
+    
+    # combine compartment annotation 
+    compComb <-paste(g1Comp, g2Comp, sep="/")
+    compComb[compComb == "B/A"] <- "A/B"
+    compComb[is.na(g1Comp) | is.na(g2Comp)] <- NA
+    
+    # set pairs within the same compartment region to NA
+    pairGR <- getPairAsGR(genePair, tssGR)
+    sameCompReg <- countOverlaps(pairGR, compGR, type="within") >= 1
+    
+    # get boolean vector for common compartment annotation but not same compartment region
+    commonComp <- compComb %in% c("A/A","B/B") & !sameCompReg
+        
+    #-------------------------
+    # for sub-compartment
+    #-------------------------
+
+    # get sub-compartment for each gene in the pairs
+    g1SubComp <- rep(NA, nrow(genePair))
+    g2SubComp <- rep(NA, nrow(genePair))
+    g1SubComp[queryHits(g1Hit)] <- subCompGR[subjectHits(g1Hit)]$subcomp
+    g2SubComp[queryHits(g2Hit)] <- subCompGR[subjectHits(g2Hit)]$subcomp
+
+    # combine sub-compartment annotation 
+    compSubComb <-paste(g1SubComp, g2SubComp, sep="/")
+    compSubComb[is.na(g1SubComp) | is.na(g2SubComp)] <- NA
+
+    # set pairs within the same sub-compartment region to NA
+    sameSubCompReg <- countOverlaps(pairGR, subCompGR, type="within") >= 1
+    
+    # get boolean vector for common sub-compartment annotation but not same sub-compartment region
+    commonSubComp <- g1SubComp == g2SubComp & !is.na(g1SubComp) & !is.na(g2SubComp) & !sameSubCompReg
+    
+    # add all annotations to gene pair df:
+    genePair[,"comp_combination"] <- compComb
+    genePair[,"same_comp_region"] <- sameCompReg
+    genePair[,"common_comp"] <- commonComp
+    genePair[,"subcomp_combination"] <- compSubComb
+    genePair[,"same_subcomp_region"] <- sameSubCompReg
+    genePair[,"common_subcomp"] <- commonSubComp
+
+    return(genePair)
+}
+
+
 
 #-----------------------------------------------------------------------
 # distribution of shared enhancers among pairs of genes

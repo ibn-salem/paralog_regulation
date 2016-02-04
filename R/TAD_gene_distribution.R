@@ -45,10 +45,10 @@ source("R/data.ensembl.R")
 # parse input data
 #=======================================================================
 
-if (!GENE_COORDINATE_CENTER){
-    protCodingGR <- getTssGRfromENSEMBLGenes(genes, seqInfoRealChrom, colNames=c("hgnc_symbol"))
-}else{
+if (GENE_COORDINATE_CENTER){
     protCodingGR <- getCenterAsGR(genes, seqInfoRealChrom, colNames=c("hgnc_symbol"))
+}else{
+    protCodingGR <- getTssGRfromENSEMBLGenes(genes, seqInfoRealChrom, colNames=c("hgnc_symbol"))
 }
 
 # parse TAD data sets as list of GRanges
@@ -183,8 +183,15 @@ geneTypeFullList = c(
 
 geneTypeCoverage <- lapply(geneTypeFullList, function(gr){
     list(
-        "+"=coverage(gr[strand(gr) == "+"]),
-        "-"=coverage(gr[strand(gr) == "-"])
+        "+"=coverage(gr[strand(gr) == "+"], method="auto"),
+        "-"=coverage(gr[strand(gr) == "-"], method="auto")
+    )
+})
+
+geneTypeCenter <- lapply(geneTypeTssList, function(gr){
+    list(
+        "+"=coverage(gr[strand(gr) == "+"], method="auto"),
+        "-"=coverage(gr[strand(gr) == "-"], method="auto")
     )
 })
 
@@ -192,10 +199,10 @@ geneTypeCoverage <- lapply(geneTypeFullList, function(gr){
 #-----------------------------------------------------------------------
 # Transpose a list of n GRAnges with m equal sized bins into list of all the ith bin 
 #-----------------------------------------------------------------------
-transposeBinList <- function(TADbins, m=20){
+transposeBinList <- function(TADbins, m=20, inParallel=TRUE){
     allBins = unlist(TADbins)
     n = length(allBins)
-    lapply(1:m, function(i) allBins[seq(i,n,m)])    
+    bplapply(1:m, function(i) allBins[seq(i,n,m)])    
 }   
 
 fractionOfGenome <- function(gr, seqinfo=seqInfo){
@@ -228,13 +235,18 @@ write.table(cbind(geneDenstyTHs), paste0(outPrefix, ".TAD_geneDensity_TH.csv"), 
 #-----------------------------------------------------------------------
 RegStats = round(data.frame(
     "n" = sapply(geneTypeTssList, length), 
-    "mean_size" = sapply(sapply(geneTypeTssList, width), mean) / 10^3,
-    "sd_size" = sapply(sapply(geneTypeTssList, width), sd) / 10^3, 
-    "median_size" = sapply(sapply(geneTypeTssList, width), median) / 10^3, 
-    "percent_genome" = sapply(geneTypeTssList, fractionOfGenome)
+    "mean_size" = sapply(sapply(geneTypeFullList, width), mean) / 10^3,
+    "sd_size" = sapply(sapply(geneTypeFullList, width), sd) / 10^3, 
+    "median_size" = sapply(sapply(geneTypeFullList, width), median) / 10^3, 
+    "percent_genome" = sapply(geneTypeFullList, fractionOfGenome)
     ), 2)
     
 write.table(RegStats, paste0(outPrefix, ".geneTypeTssList_statistics.csv"), sep="\t", quote=FALSE, col.names=NA)
+
+#-----------------------------------------------------------------------
+# Save temporary parsed data as R image
+#-----------------------------------------------------------------------
+save.image(paste0(WORKIMAGE_FILE, ".parsing.tmp.Rdata"))
 
 #-----------------------------------------------------------------------
 # Calculate the coverage along TADs of strand separated gene types
@@ -243,14 +255,13 @@ write.table(RegStats, paste0(outPrefix, ".geneTypeTssList_statistics.csv"), sep=
 for (nBin in N_BIN_LIST){
     
     # nBin=40
-    summaryTab = data.frame()
+    summaryDF = data.frame()
+#~     summaryList = list()
         
     # Iterate over each set of TADs
-    for (TADname in names(allTADs)) {
-#~     for (TADname in c("Rao_GM12878")) {
-#~     for (TADname in c("Rao_GM12878_nonOverlapping", "Rao_GM12878")) {
+#~     for (TADname in names(allTADs)) {
+    for (TADname in c("Rao_GM12878", "Rao_GM12878_nonOVLP", "Rao_GM12878_gene_sparse", "Rao_GM12878_gene_dense")) {
         
-        #TADname = "Rao_GM12878"
         TAD = allTADs[[TADname]]
         
         # resize TADs by +-50% and divide them into equal sized bins
@@ -258,24 +269,112 @@ for (nBin in N_BIN_LIST){
         ranges(TADreg) = IRanges(start(TAD) - .5 * width(TAD), end(TAD) + .5 * width(TAD))
         
         # drop TADs that extends out of the chromosome space
-        withinChrom = width(TADreg) == width(trim(TADreg))
+        withinChrom = width(TADreg) == width(IRanges::trim(TADreg))
         TADreg = TADreg[withinChrom]
+        message(paste0("INFO: Keep ", sum(withinChrom), " of ", length(withinChrom), " TADs that have extended range within chromosomes."))
         
         # make nBin equal sized bins for each TAD
-        TADbins = tile(TADreg, n=nBin)
+        TADbins <- tile(TADreg, n=nBin)
         seqinfo(TADbins) <- seqInfo
         
         # transpose the list to have always the i-th bin together
-        TADbinsList = transposeBinList(TADbins, nBin)
+        TADbinsList = transposeBinList(TADbins, nBin, inParallel=TRUE)
+        Sys.sleep(1) # hack to fix problems with bplapply on MOGON
+
         TADbinsSize = width(TADbinsList[[1]])
+
+#~         # get bins arround TAD boundaries
+#~         BoundaryBins = binsAroundTADboundaries(TAD, windowSize=WINDOW_SIZE, nbins=nBin)
+#~         message("INFO: Finished calculation of bins.")
+#~     
+#~         # transform bin list to get each i-th bin together
+#~         boundaryBinList = transposeBinList(BoundaryBins, nBin)
+        
+        # query the coverage vectors:
+        for (GENETYPE in names(geneTypeCoverage)){
+#~         for (GENETYPE in "protGenes"){
+            
+            
+            for (STRAND in c("+", "-")){
+#~                 STRAND="+"
+                message(paste("INFO: Iterate", TADname, GENETYPE, STRAND))
+                
+                covVec <-geneTypeCoverage[[GENETYPE]][[STRAND]] 
+                centerVec <- geneTypeCenter[[GENETYPE]][[STRAND]] 
+                
+                # compute coverage of TADs by taking the mean of coding bases in each bin
+                sumCov <- bplapply(TADbinsList, function(tb) sum(covVec[tb]))
+                Sys.sleep(1) # hack to fix problems with bplapply on MOGON
+                
+                sumCenter <- bplapply(TADbinsList, function(tb) sum(centerVec[tb]))
+                Sys.sleep(1) # hack to fix problems with bplapply on MOGON
+
+                perBp <- lapply(sumCov, function(cov) cov / TADbinsSize )
+                perBpCenter <- lapply(sumCenter, function(cov) cov / TADbinsSize )
+
+                # add to summaryDF
+                avCov <- sapply(perBp, mean)
+                sdCov <- sapply(perBp, sd)
+
+                avCenter <- sapply(perBpCenter, mean)
+                sdCenter <- sapply(perBpCenter, sd)
+                
+                summaryDF <- rbind(summaryDF, 
+                    data.frame(
+                        "avCov"=avCov, 
+                        "sdCov"=sdCov,
+                        "avCenter"=avCenter, 
+                        "sdCenter"=sdCenter,
+                        "tad"=rep(TADname, nBin),
+                        "geneType"=rep(GENETYPE, nBin),
+                        "strand"=rep(STRAND, nBin),
+                        "bin"=1:nBin
+                    )
+                )
+
+            }   # strand
+        }   # gene_type 
+        save(summaryDF, file=paste0(outPrefix, ".nBin_", nBin, "TAD_", TADname, ".summaryDF.Rdata"))
+
+    } # tad 
     
-        # get bins arround TAD boundaries
-        BoundaryBins = binsAroundTADboundaries(TAD, windowSize=WINDOW_SIZE, nbins=nBin)
-        message("INFO: Finished calculation of bins.")
+    # save summaryDF
+    save(summaryDF, file=paste0(outPrefix, ".nBin_", nBin, ".summaryDF.Rdata"))
+#~     load(paste0(outPrefix, ".nBin_", nBin, ".summaryDF.Rdata"))
     
-        # transform bin list to get each i-th bin together
-        boundaryBinList = transposeBinList(BoundaryBins, nBin)
+#~     names(summaryDF)[1:2] <- c("avCov", "sdCov") 
+#~     summaryDF[,1] <- as.numeric(as.character(summaryDF[,1])) 
+#~     summaryDF[,2] <- as.numeric(as.character(summaryDF[,2])) 
+
+    xlabsTADs = rep("", nBin+1)
+    names(xlabsTADs) = as.character(0:(nBin))
+    xlabsTADs[seq(0,nBin, nBin/4)+1] = c("-50%", "start", "TAD", "end", "+50%")
+    TADrect <- data.frame(xmin=nBin/4+1-.5, xmax=3*nBin/4+1-.5, ymin=-Inf, ymax=Inf)
+
+    plotTADrect = geom_rect(data=TADrect, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),color="grey20", alpha=0.10, inherit.aes = FALSE)
+    plotXtickesTAD = scale_x_discrete(labels=xlabsTADs)
     
+    # plot coverage along TAD.
+    g <- ggplot(summaryDF, aes(x=bin, y=avCov, group=paste(geneType, strand), col=strand)) + geom_line() + geom_point(aes(shape=geneType)) +
+#~     + geom_point(aes(shape=21), size=3, fill="white") + geom_point(aes(shape=strand), size=5) + scale_shape_identity() + 
+#~         geom_errorbar(aes(ymin=avCov-sdCov, ymax=avCov+sdCov), width=.1) + 
+        theme_bw() + scale_color_manual(values=c("+"="blue", "-"="red")) + 
+        facet_grid(geneType~tad, scales="free_y") + 
+        theme(legend.position="bottom") +ylab("Average covered bp") + 
+        plotTADrect + plotXtickesTAD
+    ggsave(filename=paste0(outPrefix, ".nBin_", nBin, ".summaryDF.geneType_cov_around_TAD.pdf"), w=14,h=7)        
+
+    g <- ggplot(summaryDF, aes(x=bin, y=avCenter, group=paste(geneType, strand), col=strand)) + geom_line() + geom_point(aes(shape=geneType)) + 
+#~         geom_errorbar(aes(ymin=avCov-sdCov, ymax=avCov+sdCov), width=.1) + 
+        theme_bw() + scale_color_manual(values=c("+"="blue", "-"="red")) + 
+        facet_grid(geneType~tad, scales="free_y") + 
+        theme(legend.position="bottom") +ylab("Average Gene center positions") + 
+        plotTADrect + plotXtickesTAD
+    ggsave(filename=paste0(outPrefix, ".nBin_", nBin, ".summaryDF.geneType_CenterPos_around_TAD.pdf"), w=14,h=7)        
+
+        
+} # nBin
+
 
 
 #-----------------------------------------------------------------------

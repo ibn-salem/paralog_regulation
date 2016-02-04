@@ -132,8 +132,12 @@ wget -P Rao2014 ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE63nnn/GSE63525/suppl/GS
 # unpack matrices
 tar xvfz Rao2014/*.tar.gz -C Rao2014
 
+# subcompartments in GM12878 
+wget -P Rao2014 ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE63nnn/GSE63525/suppl/GSE63525%5FGM12878%5Fsubcompartments%2Ebed%2Egz
+
 # unzip all
 gunzip Rao2014/*.gz
+
 
 
 RAO_CELLS="GM12878_primary+replicate HMEC HUVEC HeLa IMR90 K562 KBM7 NHEK"

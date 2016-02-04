@@ -288,7 +288,7 @@ binsAroundTADboundaries <- function(TAD, windowSize=20*10^3, nbins=20){
         GRanges(seqnames(TAD), IRanges(end(TAD), end(TAD)))
     )
     # get region around boundaries of window size
-    boundaryRegion = resize(boundaries, width=windowSize, fix="center", ignore.strand=TRUE)
+    boundaryRegion = resize(boundaries, width=windowSize, fix="start", ignore.strand=TRUE)
     
     # make n equal sized bins for each boundary region 
     bins= tile(boundaryRegion, n=nbins)

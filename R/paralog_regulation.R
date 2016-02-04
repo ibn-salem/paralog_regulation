@@ -131,7 +131,7 @@ require(BiocParallel)   # for parallel computing
 #~ args <- commandArgs(trailingOnly = TRUE)
 #~ PARAM_SCRIPT=args[1]
 
-PARAM_SCRIPT="R/paralog_regulation.param.v13.R"
+PARAM_SCRIPT="R/paralog_regulation.param.v14.R"
 source(PARAM_SCRIPT)
 
 #-----------------------------------------------------------------------
@@ -189,9 +189,9 @@ tssGR$linked_enhancer =  sapply(gene2ehID[names(tssGR)], length)
 #-----------------------------------------------------------------------
 # parse TAD data sets as list of GRanges
 RaoTADs = bplapply(RaoDomainFiles, parseDomainsRao, disjoin=FALSE, seqinfo=seqInfo)
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 DixonTADs <- bplapply(DixonDomainFiles, import.bed, seqinfo=seqInfo)
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
 stableTADs <- list(
 #~     "stable_TADs_n3_f80"=getConservedTADs(RaoTADs, n=3, fraction=.8),
@@ -220,6 +220,27 @@ for (tadName in names(allTADs)){
     TAD = allTADs[[tadName]]
     export(sort(TAD), paste0(outPrefix, ".TAD_data.", tadName, ".bed"))
 }
+
+#-----------------------------------------------------------------------
+# Parse sub compartments in GM12878 Rao et al 2014
+#-----------------------------------------------------------------------
+# parse subcompartments by restricting ranges to the  chromosome sizes
+subCompGR <- IRanges::trim(import.bed(RaoSubcompartmentFile, seqinfo=seqInfo))
+# add name column for subcompartment and compartment type
+subCompGR$subcomp <- ifelse(subCompGR$name != "NA", subCompGR$name, NA)
+subCompGR$comp <- substr(subCompGR$subcomp, 1,1)
+
+# merge all adjacent A and B subcompartment to get full compartments
+compA <- reduce(subCompGR[subCompGR$comp == "A" & !is.na(subCompGR$comp)])
+compA$comp <- "A"
+compB <- reduce(subCompGR[subCompGR$comp == "B" & !is.na(subCompGR$comp)])
+compB$comp <- "B"
+compGR <- sort(c(compA, compB))
+
+# annotate tssGR with compartment and sub-compartment
+#~ tssCompHit <- findOverlaps(tssGR, subCompGR)
+#~ mcols(tssGR)[queryHits(tssCompHit), "comp"] <- subCompGR[subjectHits(tssCompHit)]$comp
+#~ mcols(tssGR)[queryHits(tssCompHit), "subcomp"] <- subCompGR[subjectHits(tssCompHit)]$subcomp
 
 #-----------------------------------------------------------------------
 # Load Hi-C data from Rao et al. 2014
@@ -318,6 +339,7 @@ allCisPairs = getCisPairs(paralogPairsUniq, tssGR)
 paralogPairsUniq = addSameStrand(paralogPairsUniq, tssGR)
 
 # add linear distance between TSS
+paralogPairsUniq = addPairDist(paralogPairsUniq, tssGR)
 allCisPairs = addPairDist(allCisPairs, tssGR)
 
 # add HGNC symbols
@@ -366,6 +388,9 @@ allCisPairs = addHiCfreq(allCisPairs, tssGR, HiClistNorm, label="HiCnorm")
 allCisPairs[,"captureC_raw"] = getPairwiseMatrixScoreByName(allCisPairs, captureHiC[["raw"]], replaceZeroByNA=TRUE)
 allCisPairs[,"captureC_ObsExp"] = getPairwiseMatrixScoreByName(allCisPairs, captureHiC[["obsExp"]], replaceZeroByNA=TRUE)
 
+# add common compartment and subcompartment
+paralogPairsUniq <- addCommonCompartment(paralogPairsUniq, tssGR, compGR, subCompGR)
+allCisPairs <- addCommonCompartment(allCisPairs, tssGR, compGR, subCompGR)
 
 # add information of one-two-one orthologs in other species
 for (orgStr in names(orgStr2Name)){
@@ -376,6 +401,7 @@ for (orgStr in names(orgStr2Name)){
     allCisPairs <- addAgeFlags(allCisPairs, orthologsSpeciesList[[orgStr]], orgStr)
 
 }
+
 
 #-----------------------------------------------------------------------
 # Filter for close and distal pairs
@@ -421,14 +447,14 @@ message("INFO: Start sampling of gene pairs...")
 # Sample pairs with equal probability from all genes
 #-----------------------------------------------------------------------
 randPairs <- bplapply(1:N_RAND, function(x){getRandomPairs(nrow(paralogPairsUniq), names(tssGR))})
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
 # add same strand information
 randPairs <- lapply(randPairs, addSameStrand, tssGR)
+randPairs <- lapply(randPairs, addPairDist, tssGR)
 
 # filter for random pairs in Cis
 randPairsInCis <- lapply(randPairs, getCisPairs, tssGR)
-randPairsInCis <- lapply(randPairsInCis, addPairDist, tssGR)
 
 #-----------------------------------------------------------------------
 # Sample cis pairs according to linear distance in paralog gene pairs
@@ -448,7 +474,7 @@ closeWeights <- weightsByBin(log10(abs(closePairs$dist)), log10(abs(allCloseGene
 sampClosePairs <- bplapply(1:N_RAND, function(x){ 
     sampleFromAllPairsByWeight(n=nrow(closePairs), hitDF=allCloseGenePairs, tssGR, weight=closeWeights)
     })
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
 #-----------------------------------------------------------------------
 # Sample cis pairs according to enhancer number in paralogs and linear distance in paralog gene pairs
@@ -461,7 +487,7 @@ closeAndEhWeights <- weightsByBinDistAndEnhancers(distWeight=closeWeights, sourc
 sampEhClosePairs <- bplapply(1:N_RAND, function(x){ 
     sampleFromAllPairsByWeight(n=nrow(closePairs), hitDF=allCloseGenePairs, tssGR, weight=closeAndEhWeights)
     })
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
 #-----------------------------------------------------------------------
 # Sample distal cis pairs by distance only
@@ -481,7 +507,7 @@ distalWeight <- weightsByBin(log10(abs(distalPairs$dist)), log10(abs(allDistalGe
 sampDistalPairs <- bplapply(1:N_RAND, function(x){ 
     sampleFromAllPairsByWeight(n=nrow(distalPairs), hitDF=allDistalGenePairs, tssGR, weight=distalWeight)
     })
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
 message("INFO: Finished sampling of gene pairs.")
 
@@ -500,9 +526,9 @@ sampDistalPairs <- lapply(sampDistalPairs, addSameStrand, tssGR)
 
 # annotate common enhancers
 sampEhClosePairs <- bplapply(sampEhClosePairs, addCommonEnhancer, gene2ehID)
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 sampEhClosePairs <- bplapply(sampEhClosePairs, addRelativeEnhancerPosition, tssGR, gene2ehID, ehGR)
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
 # add expression correlation
 for (expName in names(expDFlist)) {
@@ -511,13 +537,13 @@ for (expName in names(expDFlist)) {
     expDF <- expDFlist[[expName]]
 
     sampClosePairs <- bplapply(sampClosePairs, addCor, expDF, colName=paste0(expName, "_expCor"))
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
     sampEhClosePairs <- bplapply(sampEhClosePairs, addCor, expDF, colName=paste0(expName, "_expCor"))
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
     sampDistalPairs <- bplapply(sampDistalPairs, addCor, expDF, colName=paste0(expName, "_expCor"))
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
 }
 
@@ -531,23 +557,23 @@ for (orgStr in names(orgStr2Name)){
     randPairsInCis <- bplapply(randPairsInCis, addOrthologAnnotation, orthologsSpeciesList[[orgStr]], orgStr, speciesTssGR[[orgStr]], speciesTADs[[orgStr]], speciesHiC[[orgStr]][[1]], speciesHiC[[orgStr]][[2]], inParallel=FALSE)
 
     sampClosePairs = bplapply(sampClosePairs, addOrthologAnnotation, orthologsSpeciesList[[orgStr]], orgStr, speciesTssGR[[orgStr]], speciesTADs[[orgStr]], speciesHiC[[orgStr]][[1]], speciesHiC[[orgStr]][[2]], inParallel=FALSE)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
     sampEhClosePairs = bplapply(sampEhClosePairs, addOrthologAnnotation, orthologsSpeciesList[[orgStr]], orgStr, speciesTssGR[[orgStr]], speciesTADs[[orgStr]], inParallel=FALSE)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
     sampDistalPairs = bplapply(sampDistalPairs, addOrthologAnnotation, orthologsSpeciesList[[orgStr]], orgStr, speciesTssGR[[orgStr]], speciesTADs[[orgStr]], speciesHiC[[orgStr]][[1]], speciesHiC[[orgStr]][[2]], inParallel=FALSE)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
     
     # add age related boolean flags
     sampClosePairs <- bplapply(sampClosePairs, addAgeFlags, orthologsSpeciesList[[orgStr]], orgStr )
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
     sampEhClosePairs <- bplapply(sampEhClosePairs, addAgeFlags, orthologsSpeciesList[[orgStr]], orgStr )
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
     sampDistalPairs <- bplapply(sampDistalPairs, addAgeFlags, orthologsSpeciesList[[orgStr]], orgStr )
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
     
 }    
 
@@ -555,17 +581,17 @@ for (orgStr in names(orgStr2Name)){
 
 # make GRanges objects for cis paralog pairs and random paris on same chromosome
 sampClosePairsGR = bplapply(sampClosePairs, getPairAsGR, tssGR)
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 sampEhClosePairsGR = bplapply(sampEhClosePairs, getPairAsGR, tssGR)
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
 for(tadName in names(allTADs)){
     message(paste("INFO: Compute overlap with TADs from:", tadName))
     # co-occurance within the same domain
     sampClosePairsGR = bplapply(sampClosePairsGR, addWithinSubject, allTADs[[tadName]], tadName)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
     sampEhClosePairsGR = bplapply(sampEhClosePairsGR, addWithinSubject, allTADs[[tadName]], tadName)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 }
 
 # assign annotation in GRanges object to gene pair data.frames
@@ -576,13 +602,13 @@ for (i in seq(N_RAND)){
 
 # Adds Hi-C contact frequencies to a gene pair data set
 sampClosePairs <- bplapply(sampClosePairs, addHiCfreq, tssGR, HiClist, inParallel=FALSE)
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 sampClosePairs <- bplapply(sampClosePairs, addHiCfreq, tssGR, HiClistNorm, label="HiCnorm", inParallel=FALSE)
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 sampDistalPairs <- bplapply(sampDistalPairs, addHiCfreq, tssGR, HiClist, inParallel=FALSE)
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 sampDistalPairs <- bplapply(sampDistalPairs, addHiCfreq, tssGR, HiClistNorm, label="HiCnorm", inParallel=FALSE)
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
 # add capture C
 sampClosePairs <- bplapply(1:N_RAND, function(i){
@@ -590,14 +616,23 @@ sampClosePairs <- bplapply(1:N_RAND, function(i){
     sampClosePairs[[i]][,"captureC_ObsExp"] <- getPairwiseMatrixScoreByName(sampClosePairs[[i]], captureHiC[["obsExp"]], replaceZeroByNA=TRUE)
     return(sampClosePairs[[i]])
 })
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
 sampDistalPairs <- bplapply(1:N_RAND, function(i){
     sampDistalPairs[[i]][,"captureC_raw"] <- getPairwiseMatrixScoreByName(sampDistalPairs[[i]], captureHiC[["raw"]], replaceZeroByNA=TRUE)
     sampDistalPairs[[i]][,"captureC_ObsExp"] <- getPairwiseMatrixScoreByName(sampDistalPairs[[i]], captureHiC[["obsExp"]], replaceZeroByNA=TRUE)
     return(sampDistalPairs[[i]])
 })
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
+
+# add common compartment and subcompartment
+randPairs <- bplapply(randPairs, addCommonCompartment, tssGR, compGR, subCompGR)
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
+sampClosePairs <- bplapply(sampClosePairs, addCommonCompartment, tssGR, compGR, subCompGR)
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
+sampEhClosePairs <- bplapply(sampEhClosePairs, addCommonCompartment, tssGR, compGR, subCompGR)
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
+sampDistalPairs <- bplapply(sampDistalPairs, addCommonCompartment, tssGR, compGR, subCompGR)
 
 
 # combine all sampling replicates to one data frame
@@ -805,7 +840,7 @@ dev.off()
 # take enrichment over random gene pairs on these chromosomes
 # make random pairwise chrom matrix
 randChromPairMatrix = bplapply(randPairs, interChromPairMatrix, tssGR)
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+Sys.sleep(1) # hack to fix problems with bplapply on MOGON
 
 allRandChromPairMatrix =  Reduce("+", randChromPairMatrix)
 diag(allRandChromPairMatrix) = NA
@@ -1630,7 +1665,7 @@ for (orgStr in names(orgStr2Name)){
             names=c("Orthologs of\n paralog pairs\n", "Orthologs of\n random pairs\n"), 
             addValues=TRUE, col=c(COL_ORTHO[1], COL_RAND[2]),
             main=paste("One-to-one \n orthologs\n on same chrom\n in", orgName), 
-            ylab="Pairs on some chrom [%]")        
+            ylab="Pairs on same chromosomes [%]")        
         error.bar(bp,height, c(NA, sd(randPercent)))
     dev.off()
     
@@ -1647,7 +1682,7 @@ for (orgStr in names(orgStr2Name)){
         par(lwd=2, cex=1.5, mfrow=c(2,1))
 
         hist(orthoDist, 50, col=COL_ORTHO[1],
-            main="Disance between orthologs of paralogs", xlab="Distance (kb)")
+            main="Distance between orthologs of paralogs", xlab="Distance (kb)")
         hist(randDist, 50, col=COL_RAND[2],
             main="Distance between orthologs of random gene pairs", xlab="Distance (kb)")    
     dev.off()
@@ -1671,11 +1706,11 @@ for (orgStr in names(orgStr2Name)){
         par(lwd=2, cex=1.5, mfrow=c(2,2))
 
         hist(paraDist, 50, col=COL[1],
-            main="Disance between\n paralogs", xlab="Distance (kb)")
+            main="Distance between\n paralogs", xlab="Distance (kb)")
         hist(randDist, 50, col=COL[2],
             main="Distance between\n sampled gene pairs", xlab="Distance (kb)")    
         hist(orthoDist, 50, col=COL_ORTHO[1],
-            main="Disance between\n orthologs of paralogs", xlab="Distance (kb)")
+            main="Distance between\n orthologs of paralogs", xlab="Distance (kb)")
         hist(randOrthoDist, 50, col=COL_ORTHO[2],
             main="Distance between\n orthologs of sampled gene pairs", xlab="Distance (kb)")    
     dev.off()
@@ -2617,6 +2652,24 @@ for (exampleName in names(exampleLoci)){
 #=======================================================================
 # make data.frame with all annotations
 #=======================================================================
+
+# combine all parlogs and all randomly sampled pairs
+paralogPairsUniq$g1 <- paralogPairsUniq[,1]
+paralogPairsUniq$g2 <- paralogPairsUniq[,2]
+
+commonCols <- intersect(names(paralogPairsUniq), names(randPairsCombined))
+
+
+groupFactor <- factor(rep(c("paralog", "random"), c(nrow(paralogPairsUniq), nrow(randPairsCombined))), levels=c("paralog", "random"))
+
+allPairs <- rbind.fill(paralogPairsUniq[,commonCols], randPairsCombined[,commonCols])
+allPairs$group <- groupFactor
+# add flag for cis pairs
+allPairs$sameChrom <- !is.na(allPairs[,"dist"])
+
+#=======================================================================
+# combine all parlogs and all randomly sampled pairs
+#=======================================================================
 # DIMENSION:
 # - paralog vs sampled      (2)
 # - close vs distal         (2)
@@ -2624,14 +2677,13 @@ for (exampleName in names(exampleLoci)){
 # - Expression              (4)
 # - other species           (2)
 
-#~ commonCols <- Reduce(intersect, lapply(list(closePairs, distalPairs, sampClosePairsCombined, sampDistalPairsCombined), names))
-#~ allCombined <- rbind(closePairs[,commonCols], distalPairs[,commonCols],sampClosePairsCombined[,commonCols], sampDistalPairsCombined[,commonCols] )
+
 closePairs$g1 <- closePairs[,1]
 closePairs$g2 <- closePairs[,2]
 distalPairs$g1 <- distalPairs[,1]
 distalPairs$g2 <- distalPairs[,2]
 
-allCombined <- rbind.fill(closePairs, distalPairs, sampClosePairsCombined, sampDistalPairsCombined )
+allCombined <- rbind.fill(closePairs, distalPairs, sampClosePairsCombined, sampDistalPairsCombined)
 
 groupFactor <- factor(rep(c("paralog", "sampled"), c(nrow(closePairs)+nrow(distalPairs), nrow(sampClosePairsCombined)+nrow(sampDistalPairsCombined))), levels=c("paralog", "sampled"))
 distGroupFactor <- factor(c(  
@@ -2641,6 +2693,9 @@ distGroupFactor <- factor(c(
 tadFactor <- factor(names(allTADs), levels=names(allTADs))
 expFactor <- factor(names(expDFlist), levels=names(expDFlist))
 speciesFactor <- factor(orgStr2Name, orgStr2Name)
+
+nSpecies  <- length(orgStr2Name) 
+nTAD <- length(allTADs)
 
 allDF <- data.frame(
     group = rep(groupFactor, nTAD*nExp*nSpecies),
@@ -2662,7 +2717,11 @@ speciesDF <- do.call("rbind", lapply(names(orgStr2Name), function(spec){
  return(spDF[rep(1:nrow(allCombined), nTAD*nExp),])
  }))
 
-commonCols <- c("g1", "g2", "HGNC_g1", "HGNC_g2", "hsapiens_paralog_perc_id", "hsapiens_paralog_perc_id_r1", "hsapiens_paralog_dn", "hsapiens_paralog_ds", "sameStrand", "HiCfreq", "HiCnorm", "captureC_raw", "captureC_ObsExp")
+commonCols <- c("g1", "g2", "HGNC_g1", "HGNC_g2", "hsapiens_paralog_perc_id", "hsapiens_paralog_perc_id_r1", "hsapiens_paralog_dn", "hsapiens_paralog_ds", 
+"sameStrand", 
+"HiCfreq", "HiCnorm", "captureC_raw", "captureC_ObsExp", 
+"comp_combination", "same_comp_region", "common_comp",
+"subcomp_combination", "same_subcomp_region", "common_subcomp")
 
 commonDF <- allCombined[rep(1:nrow(allCombined), nTAD*nExp*nSpecies), commonCols]
 
@@ -2671,10 +2730,41 @@ allDF <- cbind(allDF, commonDF, speciesDF)
 write.table(allDF, file=paste0(outPrefix, ".allDF.csv"),
     sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
 
-# fixed subest
+#=======================================================================
+# combine all parlogs and all randomly sampled pairs
+#=======================================================================
+
+ehCombined <- rbind.fill(closePairs, sampEhClosePairsCombined)
+
+groupFactor <- factor(rep(c("paralog", "sampled"), c(nrow(closePairs), nrow(sampEhClosePairsCombined))), levels=c("paralog", "sampled"))
+tadFactor <- factor(names(allTADs), levels=names(allTADs))
+expFactor <- factor(names(expDFlist), levels=names(expDFlist))
+
+nTAD <- length(allTADs)
+
+ehDF <- data.frame(
+    group = rep(groupFactor, nTAD*nExp),
+    dist = rep(abs(ehCombined[,"dist"])/10^3, nTAD*nExp),
+    strand = factor(rep(ehCombined[,"sameStrand"], nTAD*nExp), c(TRUE, FALSE), c("same", "opposite")),
+    tadSource = rep(rep(tadFactor, each=nrow(ehCombined)), nExp),
+    inTAD = rep(unlist(lapply(names(allTADs), function(t) ehCombined[,t])), nExp),
+    expCor = unlist(lapply(names(expDFlist), function(e) rep(ehCombined[,paste0(e,"_expCor")], nTAD))),
+    expSource = rep(expFactor, each=nrow(ehCombined)*nTAD)
+)
+
+commonEhCols <- intersect(names(closePairs), names(sampEhClosePairsCombined))
+commonEhDF <- ehCombined[rep(1:nrow(ehCombined), nTAD*nExp), commonEhCols]
+
+ehDF <- cbind(ehDF, commonEhDF)
+
+write.table(ehDF, file=paste0(outPrefix, ".ehDF.csv"),
+    sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+
+#=======================================================================
+#=======================================================================
 
 # debug pot
-ggplot(allDF, aes(x=abs(dist))) + geom_histogram() + facet_grid(group ~ distGroup, scales="free_y") + scale_x_log10()
+#ggplot(allDF, aes(x=abs(dist))) + geom_histogram() + facet_grid(group ~ distGroup, scales="free_y") + scale_x_log10()
 
 pdf(paste0(outPrefix,".allDF.distal.expCor.violinplot.pdf"))
     ggplot(allDF[allDF$distGroup=="distal",], aes(x=group, y = expCor, fill=group)) + geom_violin(adjust = .2) + theme_bw() + labs(y="Pearson correlation coefficient", x = "", title= "Co-expression correlation over tissues") + scale_x_discrete(labels="")  + facet_grid(.~expSource) + theme(legend.position = "bottom") + theme(text = element_text(size=15)) + scale_fill_manual(values=COL) + geom_boxplot(aes(fill=NULL), width=.2, colour="black", outlier.shape = NA)+guides(fill=guide_legend(title=""))
@@ -2690,7 +2780,7 @@ dev.off()
        
 pdf(paste0(outPrefix,".allDF.close.Captrue_HiC_norm.byTAD.boxplot.pdf"), w=14,h=7)
     ggplot(subDF, aes(x=inTAD, fill=group, y=captureC_ObsExp)) + 
-        geom_boxplot() + theme_bw() + labs(y="Normalized Hi-C") + scale_y_log10()  + 
+        geom_boxplot() + theme_bw() + labs(y="Captrue HiC (obs/exp)") + scale_y_log10()  + 
         facet_grid(.~tadSource) + theme(legend.position = "bottom") + theme(text = element_text(size=15)) + scale_fill_manual(values=COL)
 dev.off() 
 
@@ -2739,10 +2829,133 @@ dev.off()
 subDF <- subset(allDF, distGroup=="close" & expSource=="GTEx"  & species=="mouse")
 
 pdf(paste0(outPrefix,".allDF.close.expCor_GTEx_vs_inTAD.boxplot.pdf"), w=14, h=7)
-    ggplot(subDF, aes(x=inTAD, y=expCor, fill=inTAD)) +
+    ggplot(subDF, aes(x=inTAD, y=expCor^2, fill=inTAD)) +
         geom_boxplot() +
         facet_grid(group~tadSource) + theme_bw() + theme(legend.position = "bottom", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual(values=rev(COL_TAD))
 dev.off()
+#-----------------------------------------------------------------------
+# subset of pairs within same TAD: shared enhancers, expression correlation
+#-----------------------------------------------------------------------
+# do paralogs exp correlation vs in same TAD
+subDF <- subset(allDF, distGroup=="close" & tadSource=="stable_TADs"  & species=="mouse")
+subDF$inTAD <- factor(subDF$inTAD, levels=c(TRUE, FALSE), labels=c("same TAD", "different TADs"))
+
+pdf(paste0(outPrefix,".allDF.close.expCor_vs_inTAD.boxplot.pdf"), w=7, h=7)
+    ggplot(subDF, aes(x=group, y=expCor, fill=group)) +
+        geom_boxplot() +
+        facet_grid(inTAD~expSource) + theme_bw() + theme(legend.position = "bottom", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual(values=COL)
+dev.off()
+
+g <- ggplot(subDF, aes(x=group, y=expCor, fill=group)) +
+        geom_violin(aes(color = group), adjust=.5, lwd=1) + geom_boxplot(fill=NA, width=.25, lwd=1) +
+        facet_grid(inTAD~expSource) + theme_bw() + theme(legend.position = "bottom", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual(values=COL) + scale_color_manual(values=COL) +
+        ylab("Expression Correlation [Pearson R]") + xlab("")
+ggsave(paste0(outPrefix,".allDF.close.expCor_vs_inTAD.violinplot.pdf"), w=7, h=7)
+
+#-----------------------------------------------------------------------
+# shared enhancer
+subDF <- subset(ehDF,  tadSource=="stable_TADs" & expSource=="GTEx")
+subDF$inTAD <- factor(subDF$inTAD, levels=c(TRUE, FALSE), labels=c("same TAD", "different TADs"))
+#~ subDF$someSharedEH <- factor(subDF$commonEnhancer >= 1 , levels=c(TRUE, FALSE), labels=c("Shared Enhancer", "No sahred enhancer"))
+subDF$someSharedEH <- subDF$commonEnhancer >= 1 
+
+dc <- ddply(subDF, .(group, inTAD, someSharedEH), summarize, count=length(someSharedEH))
+summedCounts <- rep(ddply(dc, .(group, inTAD), summarize, s=sum(count))$s, each=2)
+subDFcomb <- cbind(dc, cbind(summedCounts, percent=dc$count * 100 / summedCounts))
+
+subDFcombEh = subDFcomb[subDFcomb$someSharedEH == TRUE,]
+
+
+g <- ggplot(subDFcombEh, aes(x=group, fill = group, y = percent)) +
+ geom_bar(stat="identity") + facet_grid(.~inTAD) + theme_bw() + theme(legend.position = "bottom", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual("", values=COL) + ylab("Gene paris with shared enhancer [%]") + xlab("") +
+ geom_text(aes(label = signif(percent,3), y = percent, vjust=-.2)) 
+ggsave(paste0(outPrefix,".allDF.close.sahredEH_vs_inTAD.barplot.pdf"), g, w=3.5, h=7)
+
+#-----------------------------------------------------------------------
+# same compartment
+#-----------------------------------------------------------------------
+subDF <- subset(allDF, tadSource=="stable_TADs" & expSource=="GTEx"  & species=="mouse")
+subDFfrac <- ddply(subDF, .(group, distGroup), summarize, comp=percentTrue(common_comp), subcomp=percentTrue(common_subcomp))
+
+g <- ggplot(subDFfrac, aes(x=group, y=comp, fill=group)) +
+    geom_bar(stat="identity") + 
+    facet_grid(.~distGroup) + theme_bw() + theme(legend.position = "bottom", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual(values=COL) + ylab("Same A/B compartment [%]") + 
+    geom_text(aes(label=signif(comp, 3)), vjust=1.5)
+ggsave(paste0(outPrefix,".allDF.common_compartment_vs_group.pdf"), g, w=3.5, h=7)
+    
+g <- ggplot(subDFfrac, aes(x=group, y=subcomp, fill=group)) +
+    geom_bar(stat="identity") + 
+    facet_grid(.~distGroup) + theme_bw() + theme(legend.position = "bottom", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual(values=COL) + ylab("Same subcompartment [%]") + 
+    geom_text(aes(label=signif(subcomp, 3)), vjust=1.5)
+ggsave(paste0(outPrefix,".allDF.common_subcompartment_vs_group.pdf"), g, w=3.5, h=7)
+
+#-----------------------------------------------------------------------
+# compartment combination
+#-----------------------------------------------------------------------
+#~ subDFcomb <- ddply(subDF, .(distGroup, group, comp_combination), summarize, count=table(comp_combination), percent=table(comp_combination))
+
+#~ subDFcomb <- ddply(subDF, .(distGroup, group, comp_combination), summarize, count=table(comp_combination))
+
+dc <- ddply(subDF, .(distGroup, group, comp_combination), summarize, count=table(comp_combination, useNA="ifany"))
+summedCounts <- rep(ddply(dc, .(distGroup, group), summarize, s=sum(count))$s, each=4)
+subDFcomb <- cbind(dc, cbind(summedCounts, percent=dc$count * 100 / summedCounts))
+
+# add percent position for labels:
+subDFcomb <- ddply(subDFcomb, .(distGroup, group), 
+   transform, pos = cumsum(percent) - (0.5 * percent)
+)
+
+# mark pairs with unknown compartment in combination
+subDFcomb$comp_combination[is.na(subDFcomb$comp_combination)] <- "unknown"
+
+g <- ggplot(subDFcomb, aes(x=group, fill = comp_combination, y = percent)) +
+ geom_bar(stat="identity") + facet_grid(.~distGroup) + theme_bw() + theme(legend.position = "bottom", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual("", values=COL_COMP) + ylab("Compartment combination [%]") + xlab("") +
+ geom_text(aes(label = signif(percent,3), y = pos)) 
+ggsave(paste0(outPrefix,".allDF.compartment_combination_vs_group.pdf"), g, w=3.5, h=7)
+
+#---------------
+# same without NA's
+#---------------
+dcNoNA <- ddply(subDF, .(distGroup, group, comp_combination), summarize, count=table(comp_combination))
+summedCountsNoNA <- rep(ddply(dcNoNA, .(distGroup, group), summarize, s=sum(count))$s, each=3)
+subDFcombNoNA <- cbind(dcNoNA, cbind(summedCountsNoNA, percent=dcNoNA$count * 100 / summedCountsNoNA))
+
+# add percent position for labels:
+subDFcombNoNA <- ddply(subDFcombNoNA, .(distGroup, group), 
+   transform, pos = cumsum(percent) - (0.5 * percent)
+)
+
+
+g <- ggplot(subDFcombNoNA, aes(x=group, fill = comp_combination, y = percent)) +
+ geom_bar(stat="identity") + facet_grid(.~distGroup) + theme_bw() + theme(legend.position = "bottom", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual("", values=COL_COMP) + ylab("Compartment combination [%]") + xlab("") +
+ geom_text(aes(label = signif(percent,3), y = pos)) 
+ggsave(paste0(outPrefix,".allDF.compartmentNoNA_combination_vs_group.pdf"), g, w=3.5, h=7)
+ 
+
+#-----------------------------------------------------------------------
+# same compartment with all paralog pairs
+#-----------------------------------------------------------------------
+subDF <- subset(allPairs, sameChrom==FALSE)
+
+dc <- ddply(subDF, .(group, comp_combination), summarize, count=table(comp_combination, useNA="ifany"))
+summedCounts <- rep(ddply(dc, .(group), summarize, s=sum(count))$s, each=4)
+subDFcomb <- cbind(dc, cbind(summedCounts, percent=dc$count * 100 / summedCounts))
+
+# add percent position for labels:
+subDFcomb <- ddply(subDFcomb, .(group), 
+   transform, pos = cumsum(percent) - (0.5 * percent)
+)
+
+# mark pairs with unknown compartment in combination
+subDFcomb$comp_combination[is.na(subDFcomb$comp_combination)] <- "unknown"
+
+g <- ggplot(subDFcomb, aes(x=group, fill = comp_combination, y = percent)) +
+ geom_bar(stat="identity") + theme_bw() + theme(legend.position = "bottom", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual("", values=COL_COMP) + ylab("Compartment combination [%]") + xlab("") +
+ geom_text(aes(label = signif(percent,3), y = pos)) 
+ggsave(paste0(outPrefix,".transPairs.compartment_combination_vs_group.pdf"), g, w=3.5, h=7)
+
+
+
 
 #=======================================================================
 # save workspace image

@@ -23,6 +23,8 @@ RaoDomainFiles = c(
     Rao_GM12878="data/Rao2014/GSE63525_GM12878_primary+replicate_Arrowhead_domainlist.txt"
 )
 
+RaoSubcompartmentFile="data/Rao2014/GSE63525_GM12878_subcompartments.bed"
+
 DixonDomainFiles = c(
     Dixon_hESC="data/Dixon2012/hESC.hg18.bed.hg19.bed",
     Dixon_IMR90="data/Dixon2012/IMR90.hg18.bed.hg19.bed"
