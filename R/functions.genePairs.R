@@ -719,16 +719,101 @@ duplicated.random = function(x, incomparables = FALSE, ...)
 #-----------------------------------------------------------------------
 # Adds Hi-C contact frequencies to a gene pair data set
 #-----------------------------------------------------------------------
-addHiCfreq <- function(genePair, tssGR, HiClist, label="HiCfreq", ...){
+addHiCfreq <- function(genePairs, tssGR, HiClist, label="HiCfreq", ...){
     
-    genePair[,label] = getInteractionsMulti(
-            tssGR[genePair[,1]], 
-            tssGR[genePair[,2]], 
-            HiClist,
-            ...)
-    return(genePair)
+    xRange <- tssGR[as.character(genePairs[,1])]
+    yRange <- tssGR[as.character(genePairs[,2])]
+    
+    if(all(width(xRange) == 1 & width(yRange) == 1)){
+
+        genePairs[,label] = getInteractionsPoint(
+                xRange, 
+                yRange, 
+                HiClist,
+                ...)
+    }else{
+        genePairs[,label] = getInteractionsMulti(
+                xRange, 
+                yRange, 
+                HiClist,
+                ...)
+    }
+    return(genePairs)
+}
+#-----------------------------------------------------------------------
+# Test case for function addHiCfreq() according to example in Rao data README.
+#-----------------------------------------------------------------------
+addHiCfreq.test <- function(){
+    expectedRawValue <- 5
+    expectedNormValue <- 2.70841577
+
+    x <- GRanges("chr1", IRanges(40000001, 40000001))
+    y <- GRanges("chr1", IRanges(40100001, 40100001))
+    
+    tssGR.test <- c(x,y)
+    names(tssGR.test) <- c("i", "j")
+    
+    gP <- data.frame(g1="i", g2="j")
+    
+    gP <- addHiCfreq(gP, tssGR.test, HiClist)
+
 }
 
+
+#-----------------------------------------------------------------------
+# add Hi-C observed / expected ratio 
+#-----------------------------------------------------------------------
+addHiCobsExp <- function(genePairs, tssGR, expectedHiCList, resolution, HiClabel="HiCfreq", label="HiCobs/exp"){
+    
+    # assume pairs on same chromosome
+    stopifnot(all(seqnames(tssGR[genePairs[,1]]) == seqnames(tssGR[genePairs[,1]])))
+    chroms = seqnames(tssGR[genePairs[,1]])
+
+    # iterate over all unique chromosomes (in parallel)
+#~     expValues = lapply(as.character(unique(chroms)), function(chr){
+    for (chr in as.character(unique(chroms))){
+    
+        message(paste("INFO: Query expected contacts for chromosome:", chr))
+
+        # get indexes of input ranges on that chrom
+        onChrom = which(chroms == chr)
+        
+        if (chr %in% names(expectedHiCList)){
+
+            # get vector with expected counts for this chrom
+            e <- expectedHiCList[[chr]]
+            
+            # calculate the appropriate distance bin
+            d <- abs(genePairs[onChrom, "dist"])
+            distIDX <- d %/% resolution + 1
+    
+            # get the expected count for each gene pair
+            expectedContacts <- e[distIDX]
+        }else{
+            expectedContacts <- rep(NA, length(onChrom))
+        }
+        # add obs/exp value to gene pairs
+        genePairs[onChrom, label] <- genePairs[onChrom, HiClabel] / expectedContacts
+    }
+    
+    return(genePairs)
+
+}
+
+
+#-----------------------------------------------------------------------
+# Adds the expression values for both genes
+#-----------------------------------------------------------------------
+addPairExp <- function(gP, expDF, expCol, label="exp"){
+
+    g1exp <- expDF[gP[,1], expCol]
+    g2exp <- expDF[gP[,2], expCol]
+
+    gP[,paste0("g1_", label)] <- g1exp
+    gP[,paste0("g2_", label)] <- g2exp
+    
+    return(gP)
+}
 
 #-----------------------------------------------------------------------
 # returns the Pearson correlation coefficient for expression of two input genes

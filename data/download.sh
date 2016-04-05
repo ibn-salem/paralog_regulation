@@ -443,20 +443,20 @@ gunzip OGEEdb/9606_dataset348.txt.gz
 #~ wgEncodeSydhTfbsGm12878Zzz3StdSig.bigWig
 #~ "
 #~ 
-#~ SELECTED_ENCODE="
-#~ wgEncodeSydhTfbsGm12878Stat1StdSig.bigWig
-#~ wgEncodeSydhTfbsGm12878Stat3IggmusSig.bigWig
-#~ wgEncodeSydhTfbsGm12878Yy1StdSig.bigWig
-#~ wgEncodeSydhTfbsGm12878Znf143166181apStdSig.bigWig
-#~ wgEncodeSydhTfbsGm12878Znf274StdSig.bigWig
-#~ wgEncodeSydhTfbsGm12878Znf384hpa004051IggmusSig.bigWig
-#~ "
-#~ 
-#~ mkdir -p ENCODE
-#~ for F in $SELECTED_ENCODE; dom
-    #~ wget -P ENCODE http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeSydhTfbs/${F} 
-#~ done
-#~ 
+SELECTED_ENCODE="
+wgEncodeSydhTfbsGm12878Stat1StdSig.bigWig
+wgEncodeSydhTfbsGm12878Stat3IggmusSig.bigWig
+wgEncodeSydhTfbsGm12878Yy1StdSig.bigWig
+wgEncodeSydhTfbsGm12878Znf143166181apStdSig.bigWig
+wgEncodeSydhTfbsGm12878Znf274StdSig.bigWig
+wgEncodeSydhTfbsGm12878Znf384hpa004051IggmusSig.bigWig
+"
+
+mkdir -p ENCODE
+for F in $SELECTED_ENCODE; do
+    wget -P ENCODE http://hgdownload.cse.ucsc.edu/goldenPath/hg19/encodeDCC/wgEncodeSydhTfbs/${F} 
+done
+
 
 #=======================================================================
 # ENCODE TF ChIP-seq data:

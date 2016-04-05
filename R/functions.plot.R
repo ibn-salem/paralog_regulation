@@ -8,9 +8,9 @@
 # load some useful libraries
 require(stringr)
 require(RColorBrewer)
-require(gplots) 
-require(ggplot2)        # for nice plots
 require(gridExtra)      # for dotplot with denisty at axis
+require(gplots)         # for heatmap.2
+require(ggplot2)        # for nice plots
 
 #-----------------------------------------------------------------------
 # Hi-C plot
@@ -538,11 +538,6 @@ dotplotWithDensityLogXY <- function(plotDF, xvar, yvar, zvar, COL=c("orange", "p
     arrangeGrob(plot_top, empty, scatter, plot_right, ncol=2, nrow=2, widths=c(4, 1), heights=c(1, 4))
 }
 #grid::grid.draw(dotplotWithDensityLogXY(plotDFcloseHiC, "dist", "HiCraw", "group", COL))
-
-#-----------------------------------------------------------------------
-# save the return value of arrangeGrob 
-#-----------------------------------------------------------------------
-grobSave <- ggplot2::ggsave; body(ggsave) <- body(ggplot2::ggsave)[-2]
 
 #-----------------------------------------------------------------------
 # reverse a data.frame row-wise. 

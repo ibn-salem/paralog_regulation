@@ -21,7 +21,6 @@ getBinGR <- function(chr, resolution, seqInfo){
     options("scipen"=999)
     chrLen = seqlengths(seqInfo)[chr]
     starts = seq(1, chrLen, resolution)
-#~     starts = seq(0, chrLen, resolution)
     ends = starts+resolution-1
     ends = ifelse(ends < chrLen, ends, chrLen)
     n = length(starts)
@@ -43,8 +42,8 @@ writeGRtoBED <- function(gr, outFile){
     
     options("scipen"=999)
     df <- data.frame(seqnames=seqnames(gr),
-      starts=start(gr),
-      ends=end(gr)-1,
+      starts=start(gr)-1,
+      ends=end(gr),
       names=gr$names,
       scores=c(rep(".", length(gr))),
       strands=strand(gr))
@@ -56,26 +55,49 @@ writeGRtoBED <- function(gr, outFile){
 
 
 #-----------------------------------------------------------------------
-# Rewritten function to import Hi-C experiments as HiTC object without
-# the need to providing bed files, but GRanges objects as bins instead
+# rewritten function from HiTC package (See HiTC:::ImportC)
 #-----------------------------------------------------------------------
-importC_with_bins <- function (con, binGR, allPairwise = FALSE, 
-    forceSymmetric = TRUE, tempFile) 
-{
-    # write bedfiles to temp files
-    writeGRtoBED(binGR, tempFile)
+myImportC <- function (con, binGR) {
     
-    # call regular importC function:
-    hiCexp = unlist(importC(con, tempFile, allPairwise=allPairwise, forceSymmetric=forceSymmetric))[[1]]
+    # assign intervals 
+    xgi <- binGR
+    ygi <- binGR
     
-    # correct bins
-    seqlevels(binGR) = as.character(seqnames(binGR)[1])
-    x_intervals(hiCexp) = binGR
-    y_intervals(hiCexp) = binGR
+    # parse interaction counts
+    message(paste("INFO: Sart reading file:", con))
+    cdata <- read.table(con, comment.char = "#", colClasses = c("character", 
+        "character", "numeric"), check.names = FALSE)
+    stopifnot(ncol(cdata) == 3)
+    message("INFO: Finished reading file.")
+    
+    # map coordinates to IDs in binGR
+    id1 <- cdata[, 1]
+    id2 <- cdata[, 2]
+    pos1 <- match(id1, id(ygi))
+    pos2 <- match(id2, id(xgi))
+
+    # build a sparseMatrix (with zeros for missing data9
+    bigMat <- Matrix::sparseMatrix(i = pos1, j = pos2, x = cdata[, 
+        3], dims = c(length(ygi), length(xgi)), dimnames = list(id(ygi), 
+        id(xgi)))
+    
+    
+    stopifnot(length(unique(seqnames(binGR))) == 1)
+    chr <- as.character(unique(seqnames(ygi)))
+    
+    seqlevels(ygi) <- chr
+    seqlevels(xgi) <- chr
+
+    message(paste("INFO: Convert matrix into HTCexp object(s) for chr:", chr))
+    hiCexp <- HTCexp(bigMat, xgi, ygi, lazyload = FALSE)   
+    
+    # delete input data
+    rm(cdata)
+    rm(bigMat)
 
     return(hiCexp)
-
 }
+
 
 #-----------------------------------------------------------------------
 #
@@ -133,39 +155,9 @@ normalizeByDistanceExpected <- function(hiCexp, expectedFile){
 
 
 #-----------------------------------------------------------------------
-# parse and normalize Hi-C data for one experiment and chromosome 
-#-----------------------------------------------------------------------
-parseSingleHiCexp <- function(interactionFile, normalizationFile, chr, resolution, seqInfo, tempFile){
-
-    # create bins for given resolution and chromosome size as GRanges object:
-    binGR = getBinGR(chr, resolution, seqInfo)
-    
-    # write bin coordinates as temporary BED file 
-    tempBinFile=paste0(tempFile, ".temp.res_bins.bed")
-    
-    # parse Hi-C data as HiTC experiment object
-    hiCexp = importC_with_bins(interactionFile, binGR, forceSymmetric=TRUE, tempFile=tempBinFile)
-    
-    # parse normalization vector
-    v = read.delim(normalizationFile, header=FALSE, colClasses="numeric")[,1]
-    
-    # normalize interaction counts    
-    intdata(hiCexp) = normalizeMatrix(intdata(hiCexp), v)
-    
-    return(hiCexp)
-}
-
-#~ interactionFile="data/Rao2014/IMR90/50kb_resolution_intrachromosomal/chr22/MAPQGE30/chr22_50kb.RAWobserved"
-#~ normalizationFile="data/Rao2014/IMR90/50kb_resolution_intrachromosomal/chr22/MAPQGE30/chr22_50kb.KRnorm"
-#~ chr="chr22"
-#~ resolution=50000
-#~ tempFile=paste0(interactionFile, ".temp.bin.bed")
-
-
-#-----------------------------------------------------------------------
 # parse Hi-C map for all chromosomes (only intra-chrom) at given resolution 
 #-----------------------------------------------------------------------
-parseRaoHiC <- function(cell, resolution, dirPrefix, seqInfo, normalizeByExpected=FALSE, mapQualStr="MAPQGE30", normSuffix=".KRnorm", expectedSuffix=".KRexpected"){
+parseRaoHiC <- function(cell, resolution, dirPrefix, seqInfo, normalizeByExpected=FALSE, mapQualStr="MAPQGE30", normStr="KR"){
 
     # get all the proper file paths
     # An example path is: 
@@ -195,27 +187,109 @@ parseRaoHiC <- function(cell, resolution, dirPrefix, seqInfo, normalizeByExpecte
     chromosomes = list.dirs(path =chromDir , full.names = FALSE, recursive = FALSE)
     
     # iterate over each available chromosome to parse intra-chromosomal map
-    hiClist = bplapply(chromosomes, function(chr){
+    hiClist = lapply(chromosomes, function(chr){
         
-        message(paste("Begin to parse data for chromosome", chr, "..."))
+        message(paste("INFO: Begin to parse data for chromosome", chr, "..."))
         rawMatrixFile = file.path(chromDir, chr, mapQualStr, paste0(chr, "_", resStr, ".RAWobserved"))
+
+        # create bins for given resolution and chromosome size as GRanges object:
+        binGR = getBinGR(chr, resolution, seqInfo)
+
+        # parse intra-chromsomal contacts 
+        hiCexp <- myImportC(rawMatrixFile, binGR)
         
-        normFile = file.path(chromDir, chr, mapQualStr, paste0(chr, "_", resStr, normSuffix))
-        
-        # parse and normalize intra-chromsomal contacts 
-        exp = parseSingleHiCexp(rawMatrixFile, normFile, chr, resolution, seqInfo=seqInfo, tempFile=paste0(rawMatrixFile, ".temp.bin.bed"))
-        
-        # normalize by expected counts given each bin distance
-        if (normalizeByExpected){
-            expectedfile = file.path(chromDir, chr, mapQualStr, paste0(chr, "_", resStr, expectedSuffix))
-            exp = normalizeByDistanceExpected(exp, expectedfile)
+        if (!is.null(normStr)){
+
+            normFile = file.path(chromDir, chr, mapQualStr, paste0(chr, "_", resStr, ".", normStr, "norm"))
+            expectedfile = file.path(chromDir, chr, mapQualStr, paste0(chr, "_", resStr, ".", normStr, "expected"))
+                
+            # if KR normalization vector file is empty, the normalization did not converge
+            # Rao et al suggest to take the VC or SQRTVC normalization in this case
+            if (file.size(normFile) == 0 & normStr=="KR"){
+                normFile = file.path(chromDir, chr, mapQualStr, paste0(chr, "_", resStr, ".VCnorm"))
+                expectedfile = file.path(chromDir, chr, mapQualStr, paste0(chr, "_", resStr, ".VCexpected"))
+            }
+
+            # parse normalization vector
+            v = read.delim(normFile, header=FALSE, colClasses="numeric")[,1]
+
+            # normalize interaction counts    
+            message(paste("INFO: Begin normalization..."))
+            intdata(hiCexp) = normalizeMatrix(intdata(hiCexp), v)
+            
+            # normalize by expected counts given each bin distance
+            if (normalizeByExpected){
+                message(paste("INFO: Begin normalization by expected counts..."))
+                hiCexp = normalizeByDistanceExpected(hiCexp, expectedfile)
+            }
+            message(paste("INFO: Finished normalization."))
         }
-        return(exp)
+
+        return(hiCexp)
         
     })
+    
+    Sys.sleep(1) # hack to fix problems with bplapply on MOGON
+
 
     return(HTClist(hiClist))
     
+}
+#~ rawMatrixFile
+#~ cell=CELL
+#~ resolution=HIC_RESOLUTION
+#~ dirPrefix=HIC_DATA_DIR
+#~ normalizeByExpected=FALSE
+#~ mapQualStr="MAPQGE30"
+#~ normStr="KR"
+#~ expectedSuffix=".KRexpected"
+
+#-----------------------------------------------------------------------
+# parse expected counts by distance
+#-----------------------------------------------------------------------
+parseRaoExpected <- function(cell, resolution, dirPrefix, mapQualStr="MAPQGE30", normStr="KR"){
+
+
+    # map resolution in bp to kb/mb substring:
+    res2str = c(
+        "1000"="1kb",
+        "5000"="5kb",
+        "10000"="10kb",
+        "25000"="25kb",
+        "50000"="50kb",
+        "100000"="100kb",
+        "250000"="250kb",
+        "500000"="500kb",
+        "1000000"="1mb"
+        )
+
+    options("scipen"=999)
+    resStr = res2str[as.character(resolution)]
+    options("scipen"=0)
+        
+    # build path to directory with chromosome subdirectories
+    chromDir = file.path(dirPrefix, cell, paste0(resStr, "_resolution_intrachromosomal"))
+
+    # get all available chromosome names:
+    chromosomes = list.dirs(path =chromDir , full.names = FALSE, recursive = FALSE)
+
+    expectedList = lapply(chromosomes, function(chr){
+
+        expectedfile = file.path(chromDir, chr, mapQualStr, paste0(chr, "_", resStr, ".", normStr, "expected"))
+
+        # if KR normalization vector file is empty, the normalization did not converge
+        # Rao et al suggest to take the VC or SQRTVC normalization in this case
+        if (file.size(expectedfile) == 0 & normStr=="KR"){
+            expectedfile = file.path(chromDir, chr, mapQualStr, paste0(chr, "_", resStr, ".VCexpected"))
+        }
+
+        # parse expected counts by distance
+        e <- read.delim(expectedfile, header=FALSE, colClasses="numeric")[,1]
+    
+    })
+    names(expectedList) <- chromosomes
+
+    return(expectedList)
 }
 
 
@@ -228,7 +302,7 @@ parseRudanHiC <- function(inFile, seqInfo, resolution=50*10^3){
     classes <- c(rep(c("character", "integer", "integer"),2), "double", "double" )
     intDF <- read.table(inFile, header = TRUE, colClasses = classes)
     
-    message("Finished reading of input file.")
+    message("INFO: Finished reading of input file.")
 
     # initialize list variable with false (because empty list is not allowed)
     hiClist = list()
@@ -237,7 +311,7 @@ parseRudanHiC <- function(inFile, seqInfo, resolution=50*10^3){
     # iterate over chromosomes
     for (chr in seqnames(seqInfo)){
 
-        message(paste("Begin to parse data for chromosome", chr, "..."))
+        message(paste("INFO: Begin to parse data for chromosome", chr, "..."))
         
         # get subset of pairwise interaction on this chromosome
         subDF = intDF[intDF$chrom1 == sub("chr", "", chr),]
@@ -313,7 +387,7 @@ parseCaptureHiC <- function(inFile, tssGR){
     pwList <- lapply(1:nrow(inData), function(i) {
         
         if (i %% 1000 == 0){
-            message(paste("Parsing line", i, "..."))
+            message(paste("INFO: Parsing line", i, "..."))
         }
         
         genes1 <- strsplit(inData[i, 5], split="[|]")[[1]]
@@ -333,11 +407,11 @@ parseCaptureHiC <- function(inFile, tssGR){
                 
     })
     
-    message("Construct temorary data.frame ...")
+    message("INFO: Construct temorary data.frame ...")
     pairwiseDF = do.call("rbind", pwList)
     
 
-    message("construct the interaction matrices ...")
+    message("INFO: construct the interaction matrices ...")
 
     # initialize matrix
     n = length(tssGR)
@@ -361,39 +435,82 @@ parseCaptureHiC <- function(inFile, tssGR){
 #captureHiC <- parseCaptureHiC(inFile="data/Mifsud2015/TS5_GM12878_promoter-promoter_significant_interactions.txt", tssGR)
 
 #-----------------------------------------------------------------------
-# Query an Hi-C interaction matrix with two (or more) genomic intervals.
+# Query an Hi-C interaction matrix with two (or more) genomic intervals of width 1.
 # E.g to get the interaction frequencies between two TSS coordinates.
-# This function takes around 1 second for 10 queries.
 #-----------------------------------------------------------------------
-getInteractions <- function(xRange, yRange, HiClist){
+getInteractionsPoint <- function(xRange, yRange, HiClist, inParallel=TRUE, ignoreSameBin=FALSE){
     
-    # assume only one interval in xRanges and yRange
-    stopifnot(length(xRange) == 1 & length(yRange) == 1)
+    # assume equal length of the input ranges and same chromosome
+    stopifnot(length(xRange) == length(yRange))
+    stopifnot(as.character(seqnames(xRange)) == as.character(seqnames(yRange)))
     
-    # get chromosome names and check if map exists
-    chrX = seqnames(xRange)
-    chrY = seqnames(xRange)
-    mapName = paste0(chrX, chrY)
+    # assume intervals of length 1
+    stopifnot(width(xRange) == 1 & width(yRange) == 1)
+
+    n = length(xRange)
+    chroms = seqnames(xRange)
     
-    if ( mapName %in% names(HiClist) ){
+    # initilize zero vector
+    freq = rep(NA, n)
+    
+    # iterate over all unique chromosomes (in parallel)
+    freqValues = get(ifelse(inParallel, "bplapply", "lapply"))(as.character(unique(chroms)), function(chr){
+    
+        message(paste("INFO: Query interactions for chromosome:", chr))
+
+        # get indexes of input ranges on that chrom
+        onChrom = which(chroms == chr)
+
+        # get name of map in Hi-C data
+        mapName = paste0(chr, chr)
         
-        # get the X and Y interval indices in the contact matrix
-        idxX = subjectHits(findOverlaps(xRange, x_intervals(HiClist[[mapName]])))
-        idxY = subjectHits(findOverlaps(yRange, y_intervals(HiClist[[mapName]])))
+        # check if interaction map is present, if not put NA
+        if ( ! mapName %in% names(HiClist) ){
+            
+            message(paste("WARNING: Could not find map with name:", mapName))
+            return(NA)
+        }else{
         
-        # TODO: handle input query ranges without overlap in map
+            map = HiClist[[mapName]]        
         
-        freq = intdata(HiClist[[mapName]])[idxX, idxY]
+            # get indexes of bins in Hi-C map overlapping the query regions
+            idxX = subjectHits( findOverlaps(xRange[onChrom], x_intervals(map)) )[1] 
+            idxY = subjectHits( findOverlaps(yRange[onChrom], y_intervals(map)) )[1]
+    
+            # query the interaction matrix with the indexes of bins
+            contacts <- intdata(map)[idxX,idxY]
+            
+            # ignore contact counts if both regions map to the same bin
+            if (ignoreSameBin){
+                
+                sameBin <- idxX == idxY
+                
+                contacts[sameBin] <- NA
+            }
+                        
+            return(contacts)
+        }
         
-        return(freq)
+        
+    })
+
+    # add chrom as names
+    names(freqValues) <- unique(chroms)
+    
+    # now add values to data frame
+    for (chr in unique(chroms)){
+        # get indexes of input ranges on that chrom
+        onChrom = which(chroms == chr)
+        freq[onChrom] = freqValues[[chr]]
     }
+    return(freq)
 }
+
 
 #-----------------------------------------------------------------------
 # Query an Hi-C interaction matrix with two (or more) genomic intervals.
-# E.g to get the interaction frequencies between two TSS coordinates.
 #-----------------------------------------------------------------------
-getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=sum, inParallel=TRUE, ignoreSameBin=FALSE){
+getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=mean, inParallel=TRUE, ignoreSameBin=FALSE){
     
     # assume equal length of the input ranges
     stopifnot(length(xRange) == length(yRange))
@@ -444,7 +561,7 @@ getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=sum, inPara
                 
                 contacts[sameBin] <- NA
             }
-            
+                        
             return(contacts)
         }
         
@@ -462,8 +579,8 @@ getInteractionsMulti <- function(xRange, yRange, HiClist, combineFun=sum, inPara
     }
     return(freq)
 }
-# xRange = tssGR[cisPairs[abs(cisPairs$dist) > 10^5,1][1:10]]
-# yRange = tssGR[cisPairs[abs(cisPairs$dist) > 10^5,2][1:10]]
+#~ xRange = tssGR[gP[,1]]
+#~ yRange = tssGR[gP[,2]]
 # freq = getInteractionsMulti(xRange, yRange, HiClist)
 
 #-----------------------------------------------------------------------
