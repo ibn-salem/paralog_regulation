@@ -139,6 +139,31 @@ weightsByBinDistAndEnhancers <- function(distWeight, sourcePairs, hitDF, tssGR){
     return(pairWeight)
 }
 
+#~ #-----------------------------------------------------------------------
+#~ # To sample random gene pairs get probability weights of all pairs 
+#~ # according to the distribution of distances, linked enhancer in input
+#~ # gene pair set and strand
+#~ #-----------------------------------------------------------------------
+#~ weightsByDistEhStr <- function(distWeight, sourcePairs, hitDF, tssGR){
+#~     
+#~     # get probability density for the number of linked enhancers
+#~     weightEH <- weightByEnhancers(tssGR, c(sourcePairs[,1], sourcePairs[,2]))
+#~     
+#~     # combine the probabilites from both gene pair partners by assuming independence
+#~     pairWeightEH <- ( weightEH[hitDF[,1]] * weightEH[hitDF[,2]] )
+#~     pairWeightEH <- pairWeightEH / sum(pairWeightEH)
+#~     
+#~     # annotate all pairs with sameStrand information
+#~     strandTab <- data.frame(table(sourcePairs[,"sameStrand"]) / nrow(sourcePairs))
+#~     hitDF[,"sameStrand"] <- strand(tssGR[hitDF[,1]]) == strand(tssGR[hitDF[,2]])
+#~     
+#~     # combine the probabilities for linked enhancer and linear distance by multiplication by assuming independence
+#~     pairWeight <- ( pairWeightEH * distWeight ) 
+#~     pairWeight  <- pairWeight / sum(pairWeight)
+#~     
+#~     return(pairWeight)
+#~ }
+
 
 #-----------------------------------------------------------------------
 # Get sampling weight only based on distance (or other column by "colName")
