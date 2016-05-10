@@ -26,6 +26,11 @@ age.org.str <- read.table(GENE_AGE__FILE, nrow=1, stringsAsFactors=FALSE)
 age.org <- data.frame(str_split_fixed(age.org.str, "_", 2))
 colnames(age.org) <- c("organism", "myr")
 
+id <- c(0:10)
+age.org <- cbind(id,age.org)
+write.table(age.org, file=paste0(GENE_AGE__FILE, ".organism_ID.txt"), row.names=FALSE, sep="\t", quote=FALSE)
+
+
 # read age data from file
 pair.age.df <- read.table(PAIR_AGE_FILE, stringsAsFactors=FALSE)
 

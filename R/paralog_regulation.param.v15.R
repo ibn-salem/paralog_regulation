@@ -31,12 +31,26 @@ DixonDomainFiles = c(
 # Mouse and dog TADs from Rudan et al. 2015
 RudanFile <- "data/Rudan2015/mmc2.xlsx"
 
+
+subTADfigPaths <- paste0("data/figs/gene_pairs_", c(
+    "no_TAD",
+    "diff_TAD",
+    "diff_subTAD",
+    "same_subTAD"
+), ".png")
+
+sub3TADfigPaths <- paste0("data/figs/gene_pairs_", c(
+    "not_same_TAD",
+    "diff_subTAD",
+    "same_subTAD"
+), ".png")
+
 #-----------------------------------------------------------------------
 # Rao et al. 2014 Hi-C sample
 #-----------------------------------------------------------------------
 CELL <- "IMR90"
-HIC_RESOLUTION <- 50*10^3 # 50kb
-#~ HIC_RESOLUTION <- 5*10^3 # 5kb
+#~ HIC_RESOLUTION <- 50*10^3 # 50kb
+HIC_RESOLUTION <- 5*10^3 # 5kb
 HIC_DATA_DIR <- "data/Rao2014"
 
 #-----------------------------------------------------------------------
@@ -54,17 +68,24 @@ COL_ORTHO = c(brewer.pal(12, "Paired")[5], brewer.pal(8, "Pastel2")[8])
 COL_SPECIES = brewer.pal(8, "Accent")[1:2]
 COL_STRAND = brewer.pal(8, "Pastel1")[2:1]
 COL_AGE = brewer.pal(9, "YlOrRd")[c(6,9)]
+COL_AGE_LEVELS <- terrain_hcl(13)
 COL_EH_POS=brewer.pal(9, "Set3")[c(5,9,6)]
 #~ COL_COMP=c(AA="#92AC51", AB="#F2ED98", BB="#B6534D")
-COL_COMP=c("#92AC51","#F2ED98","#B6534D", "#DFDFDF") # AA, AB, BB, <NA>
+#~ COL_COMP=c("#92AC51","#F2ED98","#B6534D", "#DFDFDF") # AA, AB, BB, <NA>
+#~ COL_COMP=c("#92AC51","#B6534D","#F2ED98", "#DFDFDF") # AA, BB, AB, <NA>
+COL_COMP=c("#92AC51","#F2ED98","#B6534D", "#DFDFDF") # AA, BB, AB, <NA>
+
+COL_COMP_REG=brewer.pal(12, "Paired")[c(8,2,9,7,1,11)]
+names(COL_COMP_REG) <- c("A/A_REG", "B/B_REG", "DIF_REG", "AA", "BB", "A/B")
 #-----------------------------------------------------------------------
 # Parameters for data loading
 #-----------------------------------------------------------------------
 
 # use local data or downlaod data from ensemble
-USE_LOCAL = FALSE
-USE_LOCAL_HIC_CONTACTS = FALSE
+USE_LOCAL = TRUE
 #~ N_CPUS=20
+LOAD_INPUT_DATA=TRUE
+LOAD_PAIRS=TRUE
 
 #-----------------------------------------------------------------------
 # Parameters critical to the analysis
@@ -83,6 +104,7 @@ DISTAL_MIN_DIST=10^6
 
 DIST_TH=c(10^6, 10^5)
 
+HIPPIE_MEDIUM=0.63
 #-----------------------------------------------------------------------
 # Version of the analysis and output file paths
 #-----------------------------------------------------------------------

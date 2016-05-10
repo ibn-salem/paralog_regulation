@@ -540,6 +540,73 @@ addWithinSubject <- function(query, subject, colName="inRegion"){
 }
 
 #-----------------------------------------------------------------------
+# add column to indicate that two query region overlap the same subset of subject regions.
+# If both query regions do not overlap any subject, FALSE is returned.
+#-----------------------------------------------------------------------
+addSameSubjectSet <- function(genePairs, subject, tssGR, colName="sameSubset"){
+    
+    # compute overlap of all genes with TADs
+    hitsDF <- as.data.frame(findOverlaps(tssGR, subject, type="within"))
+    
+    # get indices of genes in tssGR
+    idx1 <- match(genePairs[,1], names(tssGR))
+    idx2 <- match(genePairs[,2], names(tssGR))
+    
+    # get for each gene the set of TADs that overlap
+    set1 <- lapply(idx1, function(i) hitsDF[hitsDF[,1]==i,2])
+    set2 <- lapply(idx2, function(i) hitsDF[hitsDF[,1]==i,2])
+    
+    # test if sets are equal for each gene in pair
+    commonSubset <- mapply(setequal, set1, set2)
+
+    # if both empty use FALSE
+    commonSubset[sapply(set1, length) == 0 & sapply(set2, length) == 0] <- FALSE
+
+    # add column to gene pairs and return 
+    genePairs[, colName] <- commonSubset
+    return(genePairs)
+}
+
+#-----------------------------------------------------------------------
+# add column to indicate that two query region overlap the same subset of subject regions.
+# If both query regions do not overlap any subject, FALSE is returned.
+#-----------------------------------------------------------------------
+addSubTADmode <- function(genePairs, tadGR, tssGR, colName="subTAD"){
+    
+    # compute overlap of all genes with TADs
+    hitsDF <- as.data.frame(findOverlaps(tssGR, tadGR, type="within"))
+    
+    # get indices of genes in tssGR
+    idx1 <- match(genePairs[,1], names(tssGR))
+    idx2 <- match(genePairs[,2], names(tssGR))
+    
+    # get for each gene the set of TADs that overlap
+    set1 <- lapply(idx1, function(i) hitsDF[hitsDF[,1]==i,2])
+    set2 <- lapply(idx2, function(i) hitsDF[hitsDF[,1]==i,2])
+    
+    # test if sets are equal for each gene in pair
+    commonSubset <- mapply(setequal, set1, set2)
+    
+    # compute overlap with any common TAD
+    genePairGR <- getPairAsGR(genePairs, tssGR)
+    commonTAD <- countOverlaps(genePairGR, tadGR, type="within") >= 1
+
+    # get combinations
+    subTADmode <- NA
+    subTADmode[!commonTAD & commonSubset] <- "no TAD"
+    subTADmode[!commonTAD & !commonSubset] <- "diff TAD"
+    subTADmode[commonTAD & !commonSubset] <- "diff sub TAD"
+    subTADmode[commonTAD & commonSubset] <- "same sub TAD"
+    subTADmode <- factor(subTADmode, levels=c("no TAD", "diff TAD", "diff sub TAD", "same sub TAD"))
+
+    # add column to gene pairs and return 
+    genePairs[, colName] <- subTADmode
+    return(genePairs)
+}
+
+
+
+#-----------------------------------------------------------------------
 # get column to indicate that query lies within at least one subject object
 #-----------------------------------------------------------------------
 getWithinSubject <- function(query, subject){
@@ -719,7 +786,7 @@ duplicated.random = function(x, incomparables = FALSE, ...)
 #-----------------------------------------------------------------------
 # Adds Hi-C contact frequencies to a gene pair data set
 #-----------------------------------------------------------------------
-addHiCfreq <- function(genePairs, tssGR, HiClist, label="HiCfreq", ...){
+addHiCfreq <- function(genePairs, tssGR, HiClist, label="HiC", ...){
     
     xRange <- tssGR[as.character(genePairs[,1])]
     yRange <- tssGR[as.character(genePairs[,2])]
@@ -744,18 +811,27 @@ addHiCfreq <- function(genePairs, tssGR, HiClist, label="HiCfreq", ...){
 # Test case for function addHiCfreq() according to example in Rao data README.
 #-----------------------------------------------------------------------
 addHiCfreq.test <- function(){
-    expectedRawValue <- 5
-    expectedNormValue <- 2.70841577
+    # from file: Rao2014/IMR90/50kb_resolution_intrachromosomal/chr1/MAPQGE30/chr1_50kb.RAWobserved
+    #~ 500000  750000  1.0      x-z
+    #~ 550000  750000  4.0      y-z
+    #~ 700000  750000  86.0
 
-    x <- GRanges("chr1", IRanges(40000001, 40000001))
-    y <- GRanges("chr1", IRanges(40100001, 40100001))
+
+#~     expectedRawValue <- 5
+#~     expectedNormValue <- 2.70841577
+
+    x <- GRanges("chr1", IRanges(500001, 500001))
+    y <- GRanges("chr1", IRanges(550001, 550001))
+    z <- GRanges("chr1", IRanges(750001, 750001))
+        
+    tssGR.test <- c(x,y,z)
+    names(tssGR.test) <- c("x", "y", "z")
     
-    tssGR.test <- c(x,y)
-    names(tssGR.test) <- c("i", "j")
+    gP1 <- data.frame(g1=c("x", "y", "z", "z"), g2=c("z", "z", "x", "y"))
+    gP2 <- data.frame(g1=c("y"), g2=c("z"))
     
-    gP <- data.frame(g1="i", g2="j")
-    
-    gP <- addHiCfreq(gP, tssGR.test, HiClist)
+    gP1 <- addHiCfreq(gP1, tssGR.test, HiClistRaw)
+    gP2 <- addHiCfreq(gP2, tssGR.test, HiClistRaw)
 
 }
 
@@ -802,6 +878,34 @@ addHiCobsExp <- function(genePairs, tssGR, expectedHiCList, resolution, HiClabel
 
 
 #-----------------------------------------------------------------------
+# Returns a unique gene ID for a pair of strings that is independent of pair order (e.g. sorted)
+#-----------------------------------------------------------------------
+getPairIDsorted <- function(v1, v2){
+#~     id1 <- apply(apply(cbind(v1, v2), 1, sort), 2, paste, collapse="_")
+#~     id2 <- apply(cbind(v1, v2), 1, function(gP) paste(sort(gP), collapse="_"))
+    mapply(function(g1, g2) paste(sort(c(as.character(g1), as.character(g2))), collapse="_"), v1, v2)
+}
+
+#-----------------------------------------------------------------------
+# Adds HIPPIE PPI interaction score
+#-----------------------------------------------------------------------
+addHIPPIE <- function(gP, hippie, colName="HIPPIE"){
+
+    gPID <- getPairIDsorted(gP[,1], gP[,2])
+    
+    # get index of gene pair in hippie by matching symbols
+    score <- hippie[match(gPID, hippie$ID), "score"]
+    
+    gP[,colName] <- score
+    return(gP)
+#~     # DEBUG:
+#~     pSym <- c(gP[,"HGNC_g1"], gP[,"HGNC_g2"])
+#~     hSym <- c(hippie[,"symbol1"], hippie[,"symbol2"])
+#~ 
+#~     percentTrue(pSym %in% hSym)
+}
+
+#-----------------------------------------------------------------------
 # Adds the expression values for both genes
 #-----------------------------------------------------------------------
 addPairExp <- function(gP, expDF, expCol, label="exp"){
@@ -844,6 +948,25 @@ getCor <- function(gP, expDF){
 addCor <- function(gP, expDF, colName="expCor"){
     pairsAsChars = sapply(gP[,1:2], as.character)
     gP[,colName] = apply(pairsAsChars, 1, getCor, expDF=expDF)
+    return(gP)
+}
+
+#-----------------------------------------------------------------------
+# adds mutual exclusivity 
+#-----------------------------------------------------------------------
+addMutExcl <- function(gP, expDF, cutoff=1, colName="expMutExcl"){
+
+    expDFbin <- expDF >= cutoff
+    pairsAsChars = sapply(gP[,1:2], as.character)
+
+    gP[,colName] = apply(pairsAsChars, 1, function(gP){
+        
+        a <- expDFbin[gP[1],]
+        b <- expDFbin[gP[2],]
+        both <- a & b
+        
+    })
+
 #~     gP[,colName] = sapply(1:nrow(gP), function(i) {
 #~         cor(
 #~             x=t(expDF[gP[i,1],]), 
@@ -1283,6 +1406,16 @@ uniquePairPerGeneBySimIteratively <- function(gP, similarity){
     return(uniqPairs)
 }
 
+#-----------------------------------------------------------------------
+# help function to add additional column with zeros as NA to data frame
+#-----------------------------------------------------------------------
+addNoZero <- function(df, cols=c("HiCRaw", "HiC", "HiCobsExp", "captureC_raw", "captureC_ObsExp")){
+    for (column in cols){
+        df[,paste0(column, "NoZero")] <- df[,column]
+        df[,paste0(column, "NoZero")][df[,paste0(column, "NoZero")] == 0] = NA
+    }
+    return(df)
+}
 
 
 

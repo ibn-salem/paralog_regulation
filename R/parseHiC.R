@@ -474,11 +474,11 @@ getInteractionsPoint <- function(xRange, yRange, HiClist, inParallel=TRUE, ignor
             map = HiClist[[mapName]]        
         
             # get indexes of bins in Hi-C map overlapping the query regions
-            idxX = subjectHits( findOverlaps(xRange[onChrom], x_intervals(map)) )[1] 
-            idxY = subjectHits( findOverlaps(yRange[onChrom], y_intervals(map)) )[1]
+            idxX = subjectHits( findOverlaps(xRange[onChrom], x_intervals(map)) ) 
+            idxY = subjectHits( findOverlaps(yRange[onChrom], y_intervals(map)) )
     
             # query the interaction matrix with the indexes of bins
-            contacts <- intdata(map)[idxX,idxY]
+            contacts <- intdata(map)[cbind(idxX,idxY)]
             
             # ignore contact counts if both regions map to the same bin
             if (ignoreSameBin){

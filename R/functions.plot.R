@@ -494,11 +494,22 @@ applyToSubset <- function(df, fun, valueCol, groupCol, ...){
 }
 
 #-----------------------------------------------------------------------
+# Add an alpha value to a colour
+#-----------------------------------------------------------------------
+add.alpha <- function(col, alpha=1){
+  if(missing(col))
+    stop("Please provide a vector of colours.")
+  apply(sapply(col, col2rgb)/255, 2, 
+                     function(x) 
+                       rgb(x[1], x[2], x[3], alpha=alpha))  
+}
+
+#-----------------------------------------------------------------------
 # Dotplot with density at axis
 # according to: http://www.r-bloggers.com/ggplot2-cheatsheet-for-visualizing-distributions/
 # use grid::grid.draw() to plot the return value
 #-----------------------------------------------------------------------
-dotplotWithDensityLogXY <- function(plotDF, xvar, yvar, zvar, COL=c("orange", "purple"), ALPHA=.5){
+dotplotWithDensityLogXY <- function(plotDF, xvar, yvar, zvar, COL=c("orange", "purple"), ALPHA=.5, fit=FALSE, xlog=TRUE, ylog=TRUE){
 
     #placeholder plot - prints nothing at all
     empty <- ggplot()+geom_point(aes(1,1), colour="white") +
@@ -516,22 +527,41 @@ dotplotWithDensityLogXY <- function(plotDF, xvar, yvar, zvar, COL=c("orange", "p
          )
     
     #scatterplot of x and y variables
-    scatter <- ggplot(plotDF,aes_string(xvar, yvar)) + 
-      geom_point(aes_string(color=zvar), alpha=ALPHA) + scale_x_log10() + scale_y_log10() + 
-      scale_color_manual(values = COL) + theme_bw() + 
-      theme(legend.position=c(1,1),legend.justification=c(-.01,-.01), plot.margin =rep(grid::unit(c(0,0,1,1), "cm"),4))  
-    
+    if (fit){
+        scatter <- ggplot(plotDF, aes_string(x=xvar, y=yvar, color=zvar, fill=zvar)) + 
+          geom_point(alpha=ALPHA, size=.5, shape=20)  +
+#~           geom_smooth(method="lm", fullrange=TRUE, alpha=ALPHA) + 
+          geom_smooth(alpha=ALPHA) + 
+#~           scale_x_log10() + scale_y_log10() + 
+          scale_color_manual(values = COL) + scale_fill_manual(values = COL) + theme_bw() + 
+          theme(legend.position=c(1,1),legend.justification=c(-.01,-.01), plot.margin =rep(grid::unit(c(0,0,1,1), "cm"),4))
+    }else{
+        scatter <- ggplot(plotDF, aes_string(x=xvar, y=yvar)) + 
+          geom_point(aes_string(color=zvar), alpha=ALPHA) + 
+#~           scale_x_log10() + scale_y_log10() + 
+          scale_color_manual(values = COL) + scale_fill_manual(values = COL) + theme_bw() + 
+          theme(legend.position=c(1,1),legend.justification=c(-.01,-.01), plot.margin =rep(grid::unit(c(0,0,1,1), "cm"),4))  
+    }
     #marginal density of x - plot on top
     plot_top <- ggplot(plotDF, aes_string(xvar, fill=zvar)) + 
-      geom_density(alpha=.5) + scale_x_log10() + theme_bw() + 
+      geom_density(alpha=.5) + theme_bw() + #+ scale_x_log10() 
       scale_fill_manual(values = COL) + 
       theme(legend.position = "none", axis.title.x = element_blank(), plot.margin = rep(grid::unit(c(1,0,0,1), "cm"),4))
       
     #marginal density of y - plot on the right
     plot_right <- ggplot(plotDF, aes_string(yvar, fill=zvar)) + 
-      geom_density(alpha=.5) + scale_x_log10() + coord_flip() + theme_bw() + 
+      geom_density(alpha=.5) + coord_flip() + theme_bw() +  # + scale_x_log10()
       scale_fill_manual(values = COL) + 
       theme(legend.position = "none", axis.title.y = element_blank(), plot.margin = rep(grid::unit(c(0,1,1,0), "cm"),4))
+    
+    if(xlog){
+        scatter <- scatter + scale_x_log10()
+        plot_top <- plot_top + scale_x_log10()
+    }
+    if(ylog){
+        scatter <- scatter + scale_y_log10()
+        plot_right <- plot_right + scale_x_log10()
+    }
     
     #arrange the plots together, with appropriate height and width for each row and column
 #~     grid.arrange(plot_top, empty, scatter, plot_right, ncol=2, nrow=2, widths=c(4, 1), heights=c(1, 4))
@@ -544,6 +574,33 @@ dotplotWithDensityLogXY <- function(plotDF, xvar, yvar, zvar, COL=c("orange", "p
 #-----------------------------------------------------------------------
 revDF <- function(df){
     return(df[nrow(df):1,])
+}
+
+
+#-----------------------------------------------------------------------
+# Add pictures as faced grid panel labels (plot with  grid.draw(g))
+#-----------------------------------------------------------------------
+addPictureLabels <- function(p, figPath){
+    
+    # load required libraries
+    require(png)
+    require(grid)
+    require(gtable)
+
+    # parse PNG figures
+    figs <- sapply(figPath, readPNG)
+
+    g <- ggplot_gtable(ggplot_build(p))
+
+    strips <- grep("strip", g$layout$name)
+    
+    new_grobs <- lapply(figs, rasterGrob, width=1, height=1)
+    
+    g <- with(g$layout[strips,],
+              gtable_add_grob(g, new_grobs,
+                              t=t, l=l, b=b, r=r, name="strip_figs") )
+    
+    return(g)
 }
 
 #-----------------------------------------------------------------------

@@ -136,6 +136,24 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
     # save or load downloaded data 
     save(refSeqToENSG, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.refSeqToENSG.RData"))
 
+    #-------------------------------------------------------------------
+    # get EntrezGene ID to ENSG mapping
+    #-------------------------------------------------------------------
+    entrezAttributes <- c("entrezgene", "ensembl_gene_id")
+    entrezFilters <- c("chromosome_name", "with_entrezgene")
+    entrezValues <- list("chromosome_name"=c(1:22, "X", "Y"), with_entrezgene=TRUE) 
+    entrezToEnsgDF = getBM(attributes=entrezAttributes, mart=ensemblGRCh37, filters=entrezFilters, values=entrezValues)
+    
+    # take only unique refSeq IDs (This will delete 2088 out of 27791)
+    entrezToEnsgDF <- entrezToEnsgDF[!duplicated(entrezToEnsgDF$entrezgene),]
+    
+    # convert data.frame into a named vector
+    entrezToENSG <- entrezToEnsgDF[,2]
+    names(entrezToENSG) <- entrezToEnsgDF[,1]
+    
+    # save or load downloaded data 
+    save(entrezToENSG, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.entrezToENSG.RData"))
+
 
     #-------------------------------------------------------------------
     # Download mouse genes and paralog pairs
@@ -242,6 +260,7 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.orthologsSpeciesList.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.allExons.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.refSeqToENSG.RData"))
+    load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.entrezToENSG.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.allMouseGenes.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogPairsMouseALL.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.allDogGenes.RData"))
@@ -449,21 +468,28 @@ npcGR = GRanges(
     )
 names(npcGR) <- npcUNIQ$ensembl_gene_id
 
-
-#=======================================================================
-# Write out some data as plain text file
-#=======================================================================
-countGenes = table(paralogPairs[,1])
-
-paralogTable = data.frame(Ensembl_gene_ID=paralogs, gene_size=tssGR[paralogs]$gene_size, n_paralogs=countGenes[paralogs])
-nonParalogTable = data.frame(Ensembl_gene_ID=nonParalogs, gene_size=tssGR[nonParalogs]$gene_size, n_paralogs=countGenes[nonParalogs])
-
-write.table(paralogTable, col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".ENSG_size_copies.paralogs.txt"), sep="\t", quote=FALSE)
-
-write.table(nonParalogTable, col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".ENSG_size_copies.nonParalogs.txt"), sep="\t", quote=FALSE)
-
 #=======================================================================
 # Filter for unique non-overlapping pairs and map to UniProt symbols
 #=======================================================================
 paralogsUniProt <- uniPSwissToEnsgDF[uniPSwissToEnsgDF$ensembl_gene_id %in% paralogs,]
-write.table(paralogsUniProt, col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogsUniProt.txt"), sep="\t", quote=FALSE)
+
+
+#=======================================================================
+# Write out some data as plain text file
+#=======================================================================
+if ( !USE_LOCAL_DATA_ENSEMBL) {
+    write.table(paralogsUniProt, col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogsUniProt.txt"), sep="\t", quote=FALSE)
+    
+    countGenes = table(paralogPairs[,1])
+    
+    paralogTable = data.frame(Ensembl_gene_ID=paralogs, gene_size=tssGR[paralogs]$gene_size, n_paralogs=countGenes[paralogs])
+    nonParalogTable = data.frame(Ensembl_gene_ID=nonParalogs, gene_size=tssGR[nonParalogs]$gene_size, n_paralogs=countGenes[nonParalogs])
+    
+    write.table(paralogTable, col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".ENSG_size_copies.paralogs.txt"), sep="\t", quote=FALSE)
+    
+    write.table(nonParalogTable, col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".ENSG_size_copies.nonParalogs.txt"), sep="\t", quote=FALSE)
+    
+    write.table(orthologsSpeciesList[[1]], col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".orthologs_", names(orthologsSpeciesList)[1], "_human.txt"), sep="\t", quote=FALSE)
+    write.table(orthologsSpeciesList[[2]], col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".orthologs_", names(orthologsSpeciesList)[2], "_human.txt"), sep="\t", quote=FALSE)
+}
+

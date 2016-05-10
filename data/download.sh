@@ -163,9 +163,11 @@ done
 #=======================================================================
 # HIPPIE and expression data
 #=======================================================================
-mkdir -P HIPPIE
+mkdir -p HIPPIE
 # E-Mail by Miguel from 9.03.15 "gene expression in human tissues"
 # save file as 'HIPPIE/final_expression_matrix_v2.txt'
+
+wget -P HIPPIE http://cbdm-01.zdv.uni-mainz.de/~mschaefer/hippie/hippie_current.txt
 
 
 #=======================================================================
