@@ -54,6 +54,17 @@ wget -P Andersson2014 http://enhancer.binf.ku.dk/presets/enhancer_tss_associatio
 wget -P Andersson2014 http://enhancer.binf.ku.dk/presets/robust_enhancers.bed
 wget -P Andersson2014 http://enhancer.binf.ku.dk/presets/permissive_enhancers.bed
 
+#-----------------------------------------------------------------------
+# UniProt human for protein evidence
+#-----------------------------------------------------------------------
+mkdir -p UniProt
+
+wget -O UniProt/uniprot-all.txt.gz "http://www.uniprot.org/uniprot/?sort=&desc=&compress=yes&query=&fil=proteome:UP000005640%20AND%20organism:%22Homo%20sapiens%20(Human)%20[9606]%22&format=txt&force=yes"
+gunzip UniProt/uniprot-all.txt.gz
+
+# reformat to tab with only the evidence column
+python ../python/convert_UniProt_Evidence_to_table.py -i UniProt/uniprot-all.txt -o UniProt/uniprot-all.txt.evidence.tab
+
 
 
 # alternative topological domains from Filippova et al. 2014
@@ -258,6 +269,12 @@ wget "http://www.ebi.ac.uk/gxa/experiments/E-MTAB-2836.tsv?accessKey=&geneQuery=
 
 #wget -P  ExpressionAtlas http://www.ebi.ac.uk/gxa/experiments/E-GEOD-26284.tsv
 #wget -P  ExpressionAtlas http://www.ebi.ac.uk/gxa/experiments/E-MTAB-513.tsv
+
+#=======================================================================
+# House keeping genes from Eisenberg 2013 et al. (http://www.ncbi.nlm.nih.gov/pubmed/23810203)
+#=======================================================================
+mkdir -p Eisenberg2013
+wget -P Eisenberg2013 http://www.tau.ac.il/~elieis/HKG/HK_genes.txt
 
 #=======================================================================
 # Pseudogenes on MOGON from Sweta (28.04.15)

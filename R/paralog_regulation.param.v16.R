@@ -85,7 +85,7 @@ names(COL_COMP_REG) <- c("A/A_REG", "B/B_REG", "DIF_REG", "AA", "BB", "A/B")
 #-----------------------------------------------------------------------
 
 # use local data or downlaod data from ensemble
-USE_LOCAL = TRUE
+USE_LOCAL_HIC = TRUE
 #~ N_CPUS=20
 LOAD_INPUT_DATA=TRUE
 LOAD_PAIRS=TRUE
@@ -96,6 +96,8 @@ LOAD_PAIRS=TRUE
 
 # number of random permutations of whole data sets
 N_RAND=10            
+SELECT_OLD_PAIRS=FALSE
+#~ SELECT_OLD_PAIRS=TRUE
 
 # number of bins for distance density estimation as parameter to adjust sampling resolution
 N_SAMPLING_BIN <- 20
@@ -108,14 +110,22 @@ DISTAL_MIN_DIST=10^6
 DIST_TH=c(10^6, 10^5)
 
 HIPPIE_MEDIUM=0.63
+orgStr2Name = c(mmusculus="mouse", cfamiliaris="dog")
+
 #-----------------------------------------------------------------------
 # Version of the analysis and output file paths
 #-----------------------------------------------------------------------
 
-VERSION="v15"
+VERSION="v16"
 
 outDataPrefix = "results/paralog_regulation/EnsemblGRCh37_paralog_genes"
-outPrefix = paste0("results/paralog_regulation/", VERSION, "_maxDist_", MAX_DIST, "_nrand_", N_RAND, "_HiC-res_", HIC_RESOLUTION, "/EnsemblGRCh37_paralog_genes")
+
+# if SELECT_OLD_PAIRS ture, indicate this in the prefix!
+if (SELECT_OLD_PAIRS){
+    outPrefix = paste0("results/paralog_regulation/", VERSION, "_maxDist_", MAX_DIST, "_nrand_", N_RAND, "_HiC-res_", HIC_RESOLUTION, "_SelectOldPairs_", SELECT_OLD_PAIRS, "/EnsemblGRCh37_paralog_genes")
+}else{
+    outPrefix = paste0("results/paralog_regulation/", VERSION, "_maxDist_", MAX_DIST, "_nrand_", N_RAND, "_HiC-res_", HIC_RESOLUTION, "/EnsemblGRCh37_paralog_genes")
+}
 
 # create directory, if not exist
 dir.create(dirname(outPrefix), recursive=TRUE, showWarnings = FALSE)

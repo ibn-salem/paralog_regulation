@@ -344,6 +344,39 @@ addSameStrand <- function(genePairs, tssGR){
 }
 
 #-----------------------------------------------------------------------
+# Add house keeping genes annotation
+#-----------------------------------------------------------------------
+addInGeneSet <- function(genePairs, geneSet, colName){
+
+    g1 <- genePairs[,1] %in% geneSet
+    g2 <- genePairs[,2] %in% geneSet
+    
+    genePairs[,colName] <- rep(NA, nrow(genePairs))
+    genePairs[,colName][g1 | g2] <- "one"
+    genePairs[,colName][g1 & g2] <- "both"
+    genePairs[,colName][!g1 & !g2] <- "none"
+    
+    genePairs[,colName] <- factor(genePairs[,colName], c("none", "one", "both"))
+
+    return(genePairs)
+
+}
+
+#-----------------------------------------------------------------------
+# Add mimum evidence category for gene pairs
+#-----------------------------------------------------------------------
+addMinEvidence <- function(genePairs, tssGR, colName="UniProtEvidence"){
+    
+    e1 <- tssGR[genePairs[,1]]$UniProtEvidence
+    e2 <- tssGR[genePairs[,2]]$UniProtEvidence
+    
+    # mimum evidence in UniProt evidence calsses is maximum number (orderd factors)
+    genePairs[,colName] <- mapply(max, e1, e2)
+        
+    return(genePairs)    
+}
+
+#-----------------------------------------------------------------------
 # for a pair of genes, count number of common enhancers
 #-----------------------------------------------------------------------
 getCommonEnhancers <- function(twoGenes, gene2ehID){
@@ -880,10 +913,21 @@ addHiCobsExp <- function(genePairs, tssGR, expectedHiCList, resolution, HiClabel
 #-----------------------------------------------------------------------
 # Returns a unique gene ID for a pair of strings that is independent of pair order (e.g. sorted)
 #-----------------------------------------------------------------------
-getPairIDsorted <- function(v1, v2){
-#~     id1 <- apply(apply(cbind(v1, v2), 1, sort), 2, paste, collapse="_")
-#~     id2 <- apply(cbind(v1, v2), 1, function(gP) paste(sort(gP), collapse="_"))
-    mapply(function(g1, g2) paste(sort(c(as.character(g1), as.character(g2))), collapse="_"), v1, v2)
+getPairIDsorted <- function(gP){
+    mapply(function(g1, g2) 
+        paste(
+            sort(c(as.character(g1), as.character(g2))), 
+        collapse="_"), gP[,1], gP[,2])
+}
+
+
+#-----------------------------------------------------------------------
+# returns the percentage of gene pairs in gPa that are found in gPb
+#-----------------------------------------------------------------------
+percentIncluded <- function(gPa, gPb){
+    a <- getPairIDsorted(gPa)
+    b <- getPairIDsorted(gPb)
+    return( 100 * sum(a %in% b) / length(a))
 }
 
 #-----------------------------------------------------------------------
@@ -891,7 +935,7 @@ getPairIDsorted <- function(v1, v2){
 #-----------------------------------------------------------------------
 addHIPPIE <- function(gP, hippie, colName="HIPPIE"){
 
-    gPID <- getPairIDsorted(gP[,1], gP[,2])
+    gPID <- getPairIDsorted(gP)
     
     # get index of gene pair in hippie by matching symbols
     score <- hippie[match(gPID, hippie$ID), "score"]

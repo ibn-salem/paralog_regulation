@@ -26,7 +26,10 @@ require(BiocParallel)   # for parallel computing
 #~ args <- commandArgs(trailingOnly = TRUE)
 #~ PARAM_SCRIPT=args[1]
 
-PARAM_SCRIPT="R/paralog_regulation.param.v15.R"
+PARAM_SCRIPT="R/paralog_regulation.param.v16.R"
+message(paste("INFO: Load parameter from this script:", PARAM_SCRIPT))
+print(PARAM_SCRIPT)
+
 source(PARAM_SCRIPT)
 
 #-----------------------------------------------------------------------
@@ -57,150 +60,171 @@ source("R/data.expression.R")  # load expression data from EBI expression atlas
 source("R/data.captureHiC.R")  # load capture Hi-C data between promoters from Mifsud et al. 2015
 source("R/data.gene_age.R")  # load duplication age for paralogs as computed by Pablo Mier Munoz
 
-#=======================================================================
-# 1.) Parse data
-#=======================================================================
-if (!LOAD_INPUT_DATA){
-    #-----------------------------------------------------------------------
-    # Parse enhancers in correlation based maps
-    #-----------------------------------------------------------------------
-    ehGR = rtracklayer::import.bed(EH_FILE_FANTOM5, seqinfo=seqInfoRealChrom)
-    
-    # parse regulatory map from FANTOM5
-    regMap = parseFANTOM5RegMap(REGMAP_FILE_FANTOM5, tssGR, ehGR, refSeqToENSG)
-    
-    # add distance between enhancer and gene to map
-    regMap$dist = getMapDist(regMap, tssGR, ehGR)
-    
-    # make GR for associations
-    mapGR = getMapAsGR(regMap, tssGR, ehGR, strand.as.direction=TRUE)
-    
-    # map gene symbols to linked enhancer IDs 
-    gene2ehID = getGenetoEhIDmapping(names(tssGR)[regMap[,1]], regMap[,2])
-    
-    # add number of linked enhancer to tssGR
-    tssGR$linked_enhancer =  sapply(gene2ehID[names(tssGR)], length)
-    
-    #-----------------------------------------------------------------------
-    # Parse TADs from Rao et al 2014 and Dixon et al 2012
-    #-----------------------------------------------------------------------
-    # parse TAD data sets as list of GRanges
-    RaoTADs = lapply(RaoDomainFiles, parseDomainsRao, disjoin=FALSE, seqinfo=seqInfo)
-    DixonTADs <- lapply(DixonDomainFiles, import.bed, seqinfo=seqInfo)
-    
-    stableTADs <- list(
-    #~     "stable_TADs_n3_f80"=getConservedTADs(RaoTADs, n=3, fraction=.8),
-    #~     "stable_TADs_n3_f90"=getConservedTADs(RaoTADs, n=3, fraction=.9),
-    #~     "stable_TADs_n4_f80"=getConservedTADs(RaoTADs, n=4, fraction=.8),
-        "stable_TADs"=getConservedTADs(RaoTADs, n=4, fraction=.9)
-    )
-    
-    #~ stableTADsRes <- list(
-    #~     "stable_TADs_n3_10kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=10^4), n=3),
-    #~     "stable_TADs_n3_50kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=5*10^4), n=3),
-    #~     "stable_TADs_n4_10kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=10^4), n=4),
-    #~     "stable_TADs_n4_50kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=10^4), n=4)
-    #~ )
-    
-    allTADs = c(
-        RaoTADs,
-        stableTADs,
-        DixonTADs
-    )
-    
-    message("INFO: Finshed parsing of TADs.")
-    
-    # write all TADs to BED files:
-    for (tadName in names(allTADs)){
-        TAD = allTADs[[tadName]]
-        export(sort(TAD), paste0(outPrefix, ".TAD_data.", tadName, ".bed"))
-    }
-    
-    #-----------------------------------------------------------------------
-    # Parse sub compartments in GM12878 Rao et al 2014
-    #-----------------------------------------------------------------------
-    # parse subcompartments by restricting ranges to the  chromosome sizes
-    subCompGR <- IRanges::trim(import.bed(RaoSubcompartmentFile, seqinfo=seqInfo))
-    # add name column for subcompartment and compartment type
-    subCompGR$subcomp <- ifelse(subCompGR$name != "NA", subCompGR$name, NA)
-    subCompGR$comp <- substr(subCompGR$subcomp, 1,1)
-    
-    # merge all adjacent A and B subcompartment to get full compartments
-    compA <- reduce(subCompGR[subCompGR$comp == "A" & !is.na(subCompGR$comp)])
-    compA$comp <- "A"
-    compB <- reduce(subCompGR[subCompGR$comp == "B" & !is.na(subCompGR$comp)])
-    compB$comp <- "B"
-    compGR <- sort(c(compA, compB))
-    
-    # annotate tssGR with compartment and sub-compartment
-    #~ tssCompHit <- findOverlaps(tssGR, subCompGR)
-    #~ mcols(tssGR)[queryHits(tssCompHit), "comp"] <- subCompGR[subjectHits(tssCompHit)]$comp
-    #~ mcols(tssGR)[queryHits(tssCompHit), "subcomp"] <- subCompGR[subjectHits(tssCompHit)]$subcomp
-    
-    #-----------------------------------------------------------------------
-    # Load Hi-C data from Rao et al. 2014
-    #-----------------------------------------------------------------------
-    if ( !USE_LOCAL) {
-    
-        # parse normalized Hi-C map from Rao et al. 
-        HiClist = parseRaoHiC(CELL, HIC_RESOLUTION, HIC_DATA_DIR, seqInfo)
 
-        HiClistRaw = parseRaoHiC(CELL, HIC_RESOLUTION, HIC_DATA_DIR, seqInfo, normStr=NULL)
-        
-        # parse expected contacts by distance for each chromosome
-        expectedHiCList <- parseRaoExpected(CELL, HIC_RESOLUTION, HIC_DATA_DIR)
-    
-        
-        # save data for faster loading next time
-        save(HiClist, HiClistRaw, expectedHiCList, file=paste0(outDataPrefix, ".Hi-C.", CELL, ".", HIC_RESOLUTION, ".HiClist_expectedHiCList.RData"))
-        
-        # write Hi-C interaction in track.txt format for visuallization in Epi-Genome browser
-    #~     writeHiCinteractions(HiClist[1], paste0(outDataPrefix, ".Hi-C.", CELL, ".", HIC_RESOLUTION, ".map.track.txt"))
-    
-    }else{
-        load(paste0(outDataPrefix, ".Hi-C.", CELL, ".", HIC_RESOLUTION, ".HiClist_expectedHiCList.RData"))
-    }
-    
-    #-----------------------------------------------------------------------
-    # Parse Hi-C data for other species
-    #-----------------------------------------------------------------------
-    orgStr2Name = c(mmusculus="mouse", cfamiliaris="dog")
-    
-    # parse mouse and dog TADs
-    speciesSeqInfo = list("mmusculus"=seqInfoMouse, "cfamiliaris"=seqInfoDog)
-    
-    
-    speciesTADs = lapply(1:2, function(i) parseRudanTADs(RudanFile, sheet=i, disjoin=FALSE, seqinfo=speciesSeqInfo[[i]]))
-    names(speciesTADs) = names(speciesSeqInfo)
-    
-    speciesHiC = list(
-        "mmusculus" = parseRudanHiC("data/Rudan2015/GSE65126_HiC_mouse_liver_merged_50000.txt", seqInfoMouse, resolution=50*10^3), 
-        "cfamiliaris"= parseRudanHiC("data/Rudan2015/GSE65126_HiC_dog_liver_merged_50000.txt", seqInfoDog, resolution=50*10^3)
-    )
-    
-    #-----------------------------------------------------------------------
-    # Parse HIPPIE 
-    #-----------------------------------------------------------------------
-    hippieDF <- read.table("data/HIPPIE/hippie_current.txt", header=FALSE, sep="\t")
-    hippie <- data.frame(
-        symbol1 = str_split_fixed(as.character(hippieDF[,1]), "_", 2)[,1],
-        symbol2 = str_split_fixed(as.character(hippieDF[,3]), "_", 2)[,1],
-        score = hippieDF[,5],
-        stringsAsFactors=FALSE)
-
-    hippie$ID <- getPairIDsorted(entrezToENSG[as.character(hippieDF[,2])], entrezToENSG[as.character(hippieDF[,4])])
-            
-    # save all loaded data as image file
-    save.image(paste0(WORKIMAGE_FILE, ".loaded_data.Rdata"))
-}else{
-    load(paste0(WORKIMAGE_FILE, ".loaded_data.Rdata"))
-}
-
-#=======================================================================
-# 2.) Filter and annotate paralog gene pairs
-#=======================================================================
 if (!LOAD_PAIRS) {
     
+    #=======================================================================
+    # 1.) Parse data
+    #=======================================================================
+    if (!LOAD_INPUT_DATA){
+        #-----------------------------------------------------------------------
+        # Parse enhancers in correlation based maps
+        #-----------------------------------------------------------------------
+        ehGR = rtracklayer::import.bed(EH_FILE_FANTOM5, seqinfo=seqInfoRealChrom)
+        
+        # parse regulatory map from FANTOM5
+        regMap = parseFANTOM5RegMap(REGMAP_FILE_FANTOM5, tssGR, ehGR, refSeqToENSG)
+        
+        # add distance between enhancer and gene to map
+        regMap$dist = getMapDist(regMap, tssGR, ehGR)
+        
+        # make GR for associations
+        mapGR = getMapAsGR(regMap, tssGR, ehGR, strand.as.direction=TRUE)
+        
+        # map gene symbols to linked enhancer IDs 
+        gene2ehID = getGenetoEhIDmapping(names(tssGR)[regMap[,1]], regMap[,2])
+        
+        # add number of linked enhancer to tssGR
+        tssGR$linked_enhancer =  sapply(gene2ehID[names(tssGR)], length)
+        
+        #-----------------------------------------------------------------------
+        # Parse TADs from Rao et al 2014 and Dixon et al 2012
+        #-----------------------------------------------------------------------
+        # parse TAD data sets as list of GRanges
+        RaoTADs = lapply(RaoDomainFiles, parseDomainsRao, disjoin=FALSE, seqinfo=seqInfo)
+        DixonTADs <- lapply(DixonDomainFiles, import.bed, seqinfo=seqInfo)
+        
+        stableTADs <- list(
+        #~     "stable_TADs_n3_f80"=getConservedTADs(RaoTADs, n=3, fraction=.8),
+        #~     "stable_TADs_n3_f90"=getConservedTADs(RaoTADs, n=3, fraction=.9),
+        #~     "stable_TADs_n4_f80"=getConservedTADs(RaoTADs, n=4, fraction=.8),
+            "stable_TADs"=getConservedTADs(RaoTADs, n=4, fraction=.9)
+        )
+        
+        #~ stableTADsRes <- list(
+        #~     "stable_TADs_n3_10kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=10^4), n=3),
+        #~     "stable_TADs_n3_50kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=5*10^4), n=3),
+        #~     "stable_TADs_n4_10kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=10^4), n=4),
+        #~     "stable_TADs_n4_50kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=10^4), n=4)
+        #~ )
+        
+        allTADs = c(
+            RaoTADs,
+            stableTADs,
+            DixonTADs
+        )
+        
+        message("INFO: Finshed parsing of TADs.")
+        
+        # write all TADs to BED files:
+        for (tadName in names(allTADs)){
+            TAD = allTADs[[tadName]]
+            export(sort(TAD), paste0(outPrefix, ".TAD_data.", tadName, ".bed"))
+        }
+        
+        #-----------------------------------------------------------------------
+        # Parse sub compartments in GM12878 Rao et al 2014
+        #-----------------------------------------------------------------------
+        # parse subcompartments by restricting ranges to the  chromosome sizes
+        subCompGR <- IRanges::trim(import.bed(RaoSubcompartmentFile, seqinfo=seqInfo))
+        # add name column for subcompartment and compartment type
+        subCompGR$subcomp <- ifelse(subCompGR$name != "NA", subCompGR$name, NA)
+        subCompGR$comp <- substr(subCompGR$subcomp, 1,1)
+        
+        # merge all adjacent A and B subcompartment to get full compartments
+        compA <- reduce(subCompGR[subCompGR$comp == "A" & !is.na(subCompGR$comp)])
+        compA$comp <- "A"
+        compB <- reduce(subCompGR[subCompGR$comp == "B" & !is.na(subCompGR$comp)])
+        compB$comp <- "B"
+        compGR <- sort(c(compA, compB))
+        
+        # annotate tssGR with compartment and sub-compartment
+        #~ tssCompHit <- findOverlaps(tssGR, subCompGR)
+        #~ mcols(tssGR)[queryHits(tssCompHit), "comp"] <- subCompGR[subjectHits(tssCompHit)]$comp
+        #~ mcols(tssGR)[queryHits(tssCompHit), "subcomp"] <- subCompGR[subjectHits(tssCompHit)]$subcomp
+        
+        #-----------------------------------------------------------------------
+        # Load Hi-C data from Rao et al. 2014
+        #-----------------------------------------------------------------------
+        if ( !USE_LOCAL_HIC) {
+        
+            # parse normalized Hi-C map from Rao et al. 
+            HiClist = parseRaoHiC(CELL, HIC_RESOLUTION, HIC_DATA_DIR, seqInfo)
+    
+            HiClistRaw = parseRaoHiC(CELL, HIC_RESOLUTION, HIC_DATA_DIR, seqInfo, normStr=NULL)
+            
+            # parse expected contacts by distance for each chromosome
+            expectedHiCList <- parseRaoExpected(CELL, HIC_RESOLUTION, HIC_DATA_DIR)
+        
+            
+            # save data for faster loading next time
+            save(HiClist, HiClistRaw, expectedHiCList, file=paste0(outDataPrefix, ".Hi-C.", CELL, ".", HIC_RESOLUTION, ".HiClist_expectedHiCList.RData"))
+            
+            # write Hi-C interaction in track.txt format for visuallization in Epi-Genome browser
+        #~     writeHiCinteractions(HiClist[1], paste0(outDataPrefix, ".Hi-C.", CELL, ".", HIC_RESOLUTION, ".map.track.txt"))
+        
+        }else{
+            load(paste0(outDataPrefix, ".Hi-C.", CELL, ".", HIC_RESOLUTION, ".HiClist_expectedHiCList.RData"))
+        }
+        
+        #-----------------------------------------------------------------------
+        # Parse Hi-C data for other species
+        #-----------------------------------------------------------------------
+        
+        # parse mouse and dog TADs
+        speciesSeqInfo = list("mmusculus"=seqInfoMouse, "cfamiliaris"=seqInfoDog)
+        
+        
+        speciesTADs = lapply(1:2, function(i) parseRudanTADs(RudanFile, sheet=i, disjoin=FALSE, seqinfo=speciesSeqInfo[[i]]))
+        names(speciesTADs) = names(speciesSeqInfo)
+        
+        speciesHiC = list(
+            "mmusculus" = parseRudanHiC("data/Rudan2015/GSE65126_HiC_mouse_liver_merged_50000.txt", seqInfoMouse, resolution=50*10^3), 
+            "cfamiliaris"= parseRudanHiC("data/Rudan2015/GSE65126_HiC_dog_liver_merged_50000.txt", seqInfoDog, resolution=50*10^3)
+        )
+        
+        #-----------------------------------------------------------------------
+        # Parse HIPPIE 
+        #-----------------------------------------------------------------------
+        hippieDF <- read.table("data/HIPPIE/hippie_current.txt", header=FALSE, sep="\t")
+        hippie <- data.frame(
+            symbol1 = str_split_fixed(as.character(hippieDF[,1]), "_", 2)[,1],
+            symbol2 = str_split_fixed(as.character(hippieDF[,3]), "_", 2)[,1],
+            score = hippieDF[,5],
+            stringsAsFactors=FALSE)
+    
+        hippie$ID <- getPairIDsorted(cbind(entrezToENSG[as.character(hippieDF[,2])], entrezToENSG[as.character(hippieDF[,4])]))
+
+        #-----------------------------------------------------------------------
+        # Parse house keeping genes 
+        #-----------------------------------------------------------------------
+        housekeepingDF <- read.table("data/Eisenberg2013/HK_genes.txt", header=FALSE, sep="\t", stringsAsFactors=FALSE)
+        housekeepingGenes <- refSeqToENSG[housekeepingDF[,2]]
+
+        #-----------------------------------------------------------------------
+        # parse UniProt evidence
+        #-----------------------------------------------------------------------
+        evidenceDF <- read.table("data/UniProt/uniprot-all.txt.evidence.tab", header=FALSE, sep="\t")
+        
+        # map ENSG to UniProt Accession 
+        tssGR$UniPSwiss <- uniPSwissToEnsgDF[match(names(tssGR), uniPSwissToEnsgDF[,2]),1]
+
+        # annotate tssGR with UniProt Evidence for protein
+        tssGR$UniProtEvidence <- evidenceDF[match(tssGR$UniPSwiss,evidenceDF[,1]),2]
+        tssGR$UniProtEvidence <- factor(tssGR$UniProtEvidence, levels=sort(levels(tssGR$UniProtEvidence)), ordered=TRUE)
+        
+        #-----------------------------------------------------------------------
+        # save all loaded data as image file
+        #-----------------------------------------------------------------------
+        save.image(paste0(outDataPrefix, ".loaded_data.Rdata"))
+    }else{
+        load(paste0(outDataPrefix, ".loaded_data.Rdata"))
+    }
+
+    #=======================================================================
+    # 2.) Filter and annotate paralog gene pairs
+    #=======================================================================
+        
     # FILTERING ORDER:
     # paralogPairs                      w dups        n=
     # +-- paralogPairsUniqP             w/o dups      n=
@@ -240,7 +264,9 @@ if (!LOAD_PAIRS) {
     # this is computed by an maximum weight matching
     paralogPairsUniqPnonOVLWithDS = paralogPairsUniqPnonOVL[!is.na(paralogPairsUniqPnonOVL[,"hsapiens_paralog_ds"]),]
     
-    paralogPairsUniqPnonOVLUniqG = uniquePairPerGeneBySim(paralogPairsUniqPnonOVLWithDS, -1*paralogPairsUniqPnonOVLWithDS[,"hsapiens_paralog_ds"])
+    # choose factor to be multiplied with gene pair substitution rate which will be maximized during pair selection
+    pairSelectFact = ifelse(SELECT_OLD_PAIRS, 1, -1)
+    paralogPairsUniqPnonOVLUniqG = uniquePairPerGeneBySim(paralogPairsUniqPnonOVLWithDS, pairSelectFact*paralogPairsUniqPnonOVLWithDS[,"hsapiens_paralog_ds"])
     
     # get only a unique pair order (one of A-B, B-A) form the unique pairs
     paralogPairsUniq = uniquePair(paralogPairsUniqPnonOVLUniqG)
@@ -253,6 +279,7 @@ if (!LOAD_PAIRS) {
     #-----------------------------------------------------------------------
     # add same Strand info to all paralogs
     paralogPairsUniq = addSameStrand(paralogPairsUniq, tssGR)
+    paralogPairsUniq = addMinEvidence(paralogPairsUniq, tssGR)
     
     # add linear distance between TSS
     paralogPairsUniq = addPairDist(paralogPairsUniq, tssGR)
@@ -338,6 +365,12 @@ if (!LOAD_PAIRS) {
     # add HIPPIE
     allCisPairs <- addHIPPIE(allCisPairs, hippie)
 
+    # add housekeeping gene information
+    allCisPairs <- addInGeneSet(allCisPairs, housekeepingGenes, "housekeeping")
+    
+    # add UniProt evidence
+    allCisPairs <- addMinEvidence(allCisPairs, tssGR)
+    
     # save allCisPairs with all annotations
     write.table(allCisPairs, file=paste0(outPrefix, ".paralog_pairs.allCisPairs.annotated.txt"),
         sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
@@ -381,12 +414,11 @@ if (!LOAD_PAIRS) {
     # 3.) Sample random control/background data sets
     #=======================================================================
     # There will be the following types of sampled gene pairs:
-    # - randPairs           := sampled completely pairs randomly from all genes
-    # - sampClosePairs      := sampled by distance of closePairs
-    # - sampEhClosePairs    := sampled by distance and num. of enhancers from close Pairs
-    # - sampDistalPairs     := sampled by distance of distalPairs
-    # - sampCisPairs        := sampled by distance of allCisPairs
-    # - sampEhStrPairs      := sampled by distance, numb. of enhancer, and strand of allCisPairs
+    # - randPairs               := sampled completely pairs randomly from all genes
+    # - sampCisPairs            := sampled by distance of allCisPairs
+    # - sampDistEhPairs         := sampled by distance and numb. of enhancer from allCisPairs
+    # - sampDistEhStrandPairs   := sampled by distance and numb. of enhancer, and strand from allCisPairs
+    # - sampDistEhLenPairs      := sampled by distance and numb. of enhancer, and gene length from allCisPairs
     message("INFO: Start sampling of gene pairs...")
     
     #-----------------------------------------------------------------------
@@ -398,44 +430,9 @@ if (!LOAD_PAIRS) {
     # add same strand information
     randPairs <- lapply(randPairs, addSameStrand, tssGR)
     randPairs <- lapply(randPairs, addPairDist, tssGR)
-    
-    # filter for random pairs in Cis
-    randPairsInCis <- lapply(randPairs, getCisPairs, tssGR)
-    
+        
     #-----------------------------------------------------------------------
-    # Sample cis pairs according to linear distance in paralog gene pairs
-    #-----------------------------------------------------------------------
-    # get all possible gene pairs within MAX_DIST bp
-    allCloseGenePairsOVL <- getAllGenePairs(tssGR, maxDist=MAX_DIST, minDist=1)
-    
-    # filter out overlapping pairs
-    closeNonOVL <- nonOverlappingGenePairs(allCloseGenePairsOVL, genesGR, useIDs=TRUE)
-    allCloseGenePairs <- allCloseGenePairsOVL[closeNonOVL,]
-    
-    # get sample weights according to distance
-    closeDistBreaks <- seq(log10(1), log10(MAX_DIST), length.out=N_SAMPLING_BIN+1)
-    closeWeights <- weightsByBin(log10(abs(closePairs$dist)), log10(abs(allCloseGenePairs$dist)), breaks=closeDistBreaks)
-    
-    # sample close pairs according to distance weight
-    sampClosePairs <- bplapply(1:N_RAND, function(x){ 
-        sampleFromAllPairsByWeight(n=nrow(closePairs), hitDF=allCloseGenePairs, tssGR, weight=closeWeights)
-        })
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
-    #-----------------------------------------------------------------------
-    # Sample cis pairs according to enhancer number in paralogs and linear distance in paralog gene pairs
-    #-----------------------------------------------------------------------
-    # get sample weights according to enahncer number and distance
-    closeAndEhWeights <- weightsByBinDistAndEnhancers(distWeight=closeWeights, sourcePairs=closePairs, hitDF=allCloseGenePairs, tssGR)
-    
-    # sample according to enahncer number and distance
-    sampEhClosePairs <- bplapply(1:N_RAND, function(x){ 
-        sampleFromAllPairsByWeight(n=nrow(closePairs), hitDF=allCloseGenePairs, tssGR, weight=closeAndEhWeights)
-        })
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
-    #-----------------------------------------------------------------------
-    # Sample all cis pairs by distance only
+    # Sample all cis pairs by distance using 90 bins 
     #-----------------------------------------------------------------------
     # Now sample from all possible gene pairs within 1 - DISTAL_MAX_DIST bp
     allCisGenePairsOVL <- getAllGenePairs(tssGR, maxDist=DISTAL_MAX_DIST, minDist=1)
@@ -443,329 +440,260 @@ if (!LOAD_PAIRS) {
     # filter out overlapping pairs
     allNonOVL <- nonOverlappingGenePairs(allCisGenePairsOVL, genesGR, useIDs=TRUE)
     allCisGenePairs <- allCisGenePairsOVL[allNonOVL,]
-    
+
     # get sampling weights for distal pairs according to distance
-    allBreaks <- seq(log10(1), log10(DISTAL_MAX_DIST), length.out=N_SAMPLING_BIN+1)
-    allWeight <- weightsByBin(log10(abs(allCisPairs$dist)), log10(abs(allCisGenePairs$dist)), breaks=allBreaks)
+    cisDistBreaks <- seq(log10(1), log10(DISTAL_MAX_DIST), length.out=91)
+    cisDistProp <- weightsByBin(log10(abs(allCisPairs$dist)), log10(abs(allCisGenePairs$dist)), breaks=cisDistBreaks)
     
     # sample according to distance
     sampCisPairs <- bplapply(1:N_RAND, function(x){ 
-        sampleFromAllPairsByWeight(n=nrow(allCisPairs), hitDF=allCisGenePairs, tssGR, weight=allWeight)
+        sampleFromAllPairsByWeight(n=nrow(allCisPairs), hitDF=allCisGenePairs, tssGR, weight=cisDistProp)
         })
     Sys.sleep(3) # hack to fix problems with bplapply on MOGON
 
     #-----------------------------------------------------------------------
-    # Sample all cis pairs by distance using 100 bins 
-    #-----------------------------------------------------------------------
+    # Sample from all cis pairs according to distance and enhancer
+    #-----------------------------------------------------------------------    
+    # get probability density for the number of linked enhancers for each gene
+    cisEhProp <- weightPairsByEnhancers(tssGR, allCisPairs, allCisGenePairs)
 
-    # get sampling weights for distal pairs according to distance
-    all100Breaks <- seq(log10(1), log10(DISTAL_MAX_DIST), length.out=91)
-    all100Weight <- weightsByBin(log10(abs(allCisPairs$dist)), log10(abs(allCisGenePairs$dist)), breaks=all100Breaks)
+    weightDistEh <- cisDistProp * cisEhProp 
+    probDistEh <- weightDistEh / sum(weightDistEh)
     
-    # sample according to distance
-    sampCis100Pairs <- bplapply(1:N_RAND, function(x){ 
-        sampleFromAllPairsByWeight(n=nrow(allCisPairs), hitDF=allCisGenePairs, tssGR, weight=all100Weight)
+    # sample according to distance, strand, and enhancers
+    sampDistEhPairs <- bplapply(1:N_RAND, function(x){ 
+        sampleFromAllPairsByWeight(n=nrow(allCisPairs), hitDF=allCisGenePairs, tssGR, weight=probDistEh)
         })
     Sys.sleep(3) # hack to fix problems with bplapply on MOGON
 
-#~     #-----------------------------------------------------------------------
-#~     # Sample from all cis pairs according to distance, enhancer, and strand
-#~     #-----------------------------------------------------------------------
-#~     # get sample weights according to enahncer number and distance
-#~     distEhStrWeights <- weightsByBinDistAndEnhancers(distWeight=closeWeights, sourcePairs=closePairs, hitDF=allCloseGenePairs, tssGR)
-#~     
-#~     # sample according to enahncer number and distance
-#~     sampEhClosePairs <- bplapply(1:N_RAND, function(x){ 
-#~         sampleFromAllPairsByWeight(n=nrow(closePairs), hitDF=allCloseGenePairs, tssGR, weight=closeAndEhWeights)
-#~         })
-#~     Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-#~     
-
-
     #-----------------------------------------------------------------------
-    # Sample distal cis pairs by distance only
-    #-----------------------------------------------------------------------
-    # Now sample from all possible gene pairs within DISTAL_MIN_DIST - DISTAL_MAX_DIST bp
-    allDistalGenePairs <- allCisGenePairs[abs(allCisGenePairs$dist) > DISTAL_MIN_DIST,]
+    # Sample from all cis pairs according to distance, enhancer, and strand
+    #-----------------------------------------------------------------------    
+    # annotate all pairs with sameStrand information
+    allCisGenePairs[,"sameStrand"] <- strand(tssGR)[allCisGenePairs[,1]] == strand(tssGR)[allCisGenePairs[,2]]
+        
+    # get weight for strand information
+    strandWeight <- weightsByFactorFreq(allCisPairs[,"sameStrand"], allCisGenePairs[,"sameStrand"])
     
-    # get sampling weights for distal pairs according to distance
-    distalBreaks <- seq(log10(DISTAL_MIN_DIST), log10(DISTAL_MAX_DIST), length.out=N_SAMPLING_BIN+1)
-    distalWeight <- weightsByBin(log10(abs(distalPairs$dist)), log10(abs(allDistalGenePairs$dist)), breaks=distalBreaks)
+    weightDistEhStrand <- cisDistProp * cisEhProp * strandWeight 
+    probDistEhStrand <- weightDistEhStrand / sum(weightDistEhStrand)
     
-    # sample according to distance
-    sampDistalPairs <- bplapply(1:N_RAND, function(x){ 
-        sampleFromAllPairsByWeight(n=nrow(distalPairs), hitDF=allDistalGenePairs, tssGR, weight=distalWeight)
+    # sample according to distance, strand, and enhancers
+    sampDistEhStrandPairs <- bplapply(1:N_RAND, function(x){ 
+        sampleFromAllPairsByWeight(n=nrow(allCisPairs), hitDF=allCisGenePairs, tssGR, weight=probDistEhStrand)
         })
     Sys.sleep(3) # hack to fix problems with bplapply on MOGON
 
+    #-----------------------------------------------------------------------
+    # Sample from all cis pairs according to distance, enhancer, and gene_length
+    #-----------------------------------------------------------------------
+    # get probability density for gene length
+    paraLen1 <- log10(tssGR[allCisPairs[,1]]$gene_size)
+    paraLen2 <- log10(tssGR[allCisPairs[,2]]$gene_size)
+    allLen1 <- log10( tssGR$gene_size[allCisGenePairs[,1]] ) 
+    allLen2 <- log10( tssGR$gene_size[allCisGenePairs[,2]] ) 
     
+    # get sampling weight for each gene in pair separately
+    popGeneLength1 <- weightsByBin(paraLen1, allLen1, breaks=20)
+    popGeneLength2 <- weightsByBin(paraLen2, allLen2, breaks=20)
+
+    # combine sampling weights from both genes and normalize to sum up to 1
+    weightGeneLength = popGeneLength1 * popGeneLength2 / sum(popGeneLength1 * popGeneLength2)
+    
+    weightDistEhLen <- cisDistProp * cisEhProp * weightGeneLength 
+    probDistEhLen <- weightDistEhLen / sum(weightDistEhLen)
+    
+    # sample according to distance, strand, and enhancers
+    sampDistEhLenPairs <- bplapply(1:N_RAND, function(x){ 
+        sampleFromAllPairsByWeight(n=nrow(allCisPairs), hitDF=allCisGenePairs, tssGR, weight=probDistEhLen)
+        })
+    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+
     #-----------------------------------------------------------------------
     # save sampled gene pairs before annotation.
     #-----------------------------------------------------------------------
-    save(randPairs, randPairsInCis, sampClosePairs, sampEhClosePairs, sampDistalPairs, sampCisPairs, sampCis100Pairs, file=paste0(WORKIMAGE_FILE, ".sampled_pairs_before_annotation.Rdata"))
+    save(randPairs, sampCisPairs, sampDistEhPairs, sampDistEhStrandPairs, sampDistEhLenPairs, file=paste0(WORKIMAGE_FILE, ".sampled_pairs_before_annotation.Rdata"))
     #load(paste0(WORKIMAGE_FILE, ".sampled_pairs_before_annotation.Rdata"))
     message("INFO: Finished sampling of gene pairs.")
     
-    #-----------------------------------------------------------------------
-    # annotate sampled gene pairs
-    #-----------------------------------------------------------------------
-    
-    # annotate gene symbols and strand
-    sampClosePairs <- lapply(sampClosePairs, addHGNC, tssGR)
-    sampEhClosePairs <- lapply(sampEhClosePairs, addHGNC, tssGR)
-    sampDistalPairs <- lapply(sampDistalPairs, addHGNC, tssGR)
-    sampCisPairs <- lapply(sampCisPairs, addHGNC, tssGR)
-    sampCis100Pairs <- lapply(sampCis100Pairs, addHGNC, tssGR)
-    
-    sampClosePairs <- lapply(sampClosePairs, addSameStrand, tssGR)
-    sampEhClosePairs <- lapply(sampEhClosePairs, addSameStrand, tssGR)
-    sampDistalPairs <- lapply(sampDistalPairs, addSameStrand, tssGR)
-    sampCisPairs <- lapply(sampCisPairs, addSameStrand, tssGR)
-    sampCis100Pairs <- lapply(sampCis100Pairs, addSameStrand, tssGR)
-    
-    # annotate common enhancers
-    sampEhClosePairs <- bplapply(sampEhClosePairs, addCommonEnhancer, gene2ehID)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    sampEhClosePairs <- bplapply(sampEhClosePairs, addRelativeEnhancerPosition, tssGR, gene2ehID, ehGR)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
-    # add expression in IMR90 cells
-    sampClosePairs <- lapply(sampClosePairs, addPairExp, expDFlist[["ENCODE_cell_lines"]], expCol="IMR_90", label="exp_IMR90")
-    sampEhClosePairs <- lapply(sampEhClosePairs, addPairExp, expDFlist[["ENCODE_cell_lines"]], expCol="IMR_90", label="exp_IMR90")
-    sampDistalPairs <- lapply(sampDistalPairs, addPairExp, expDFlist[["ENCODE_cell_lines"]], expCol="IMR_90", label="exp_IMR90")
-    sampCisPairs <- lapply(sampCisPairs, addPairExp, expDFlist[["ENCODE_cell_lines"]], expCol="IMR_90", label="exp_IMR90")
-    sampCis100Pairs <- lapply(sampCis100Pairs, addPairExp, expDFlist[["ENCODE_cell_lines"]], expCol="IMR_90", label="exp_IMR90")
-    
-    # add expression correlation
-    for (expName in names(expDFlist)) {
-        
-        message(paste("INFO: Annotate sampled pairs with expression form:", expName))
-        expDF <- expDFlist[[expName]]
-    
-        sampClosePairs <- bplapply(sampClosePairs, addCor, expDF, colName=paste0(expName, "_expCor"))
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
-        sampEhClosePairs <- bplapply(sampEhClosePairs, addCor, expDF, colName=paste0(expName, "_expCor"))
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
-        sampDistalPairs <- bplapply(sampDistalPairs, addCor, expDF, colName=paste0(expName, "_expCor"))
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
-        sampCisPairs <- bplapply(sampCisPairs, addCor, expDF, colName=paste0(expName, "_expCor"))
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+    #===================================================================
+    # Annotate sampled gene pairs
+    #===================================================================
 
-        sampCis100Pairs <- bplapply(sampCis100Pairs, addCor, expDF, colName=paste0(expName, "_expCor"))
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        
-    }
-    
-    # save temp
-    #~ save.image(paste0(WORKIMAGE_FILE, ".sampling_and_after_expression_annotation.Rdata"))
+    # annotate random pairs with common compartment, Age, and HIPPIE
+    randPairs <- lapply(randPairs, addCommonCompartment, tssGR, compGR, subCompGR)
+    randPairs <- bplapply(randPairs, addAge, pair.ac, uniPSwissToEnsgDF)
+    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+    randPairs <- lapply(randPairs, addHIPPIE, hippie)
+    randPairs <- lapply(randPairs, addInGeneSet, housekeepingGenes, "housekeeping")
+    randPairs <- lapply(randPairs, addMinEvidence, tssGR)
     
     # annotate with orthologs in other species:
     for (orgStr in names(orgStr2Name)){
-    
+        
+        message(paste("INFO: Annotate pairs with ortholog annotation from:", orgStr))
+        
         # add ortholog information to random sampled pairs on same chromosome
-        randPairsInCis <- bplapply(randPairsInCis, addOrthologAnnotation, orthologsSpeciesList[[orgStr]], orgStr, speciesTssGR[[orgStr]], speciesTADs[[orgStr]], speciesHiC[[orgStr]][[1]], speciesHiC[[orgStr]][[2]], inParallel=FALSE)
-    
-        sampClosePairs = bplapply(sampClosePairs, addOrthologAnnotation, orthologsSpeciesList[[orgStr]], orgStr, speciesTssGR[[orgStr]], speciesTADs[[orgStr]], speciesHiC[[orgStr]][[1]], speciesHiC[[orgStr]][[2]], inParallel=FALSE)
+        randPairs <- bplapply(randPairs, addOrthologAnnotation, orthologsSpeciesList[[orgStr]], orgStr, speciesTssGR[[orgStr]], speciesTADs[[orgStr]], speciesHiC[[orgStr]][[1]], speciesHiC[[orgStr]][[2]], inParallel=FALSE)
         Sys.sleep(3) # hack to fix problems with bplapply on MOGON
     
-        sampEhClosePairs = bplapply(sampEhClosePairs, addOrthologAnnotation, orthologsSpeciesList[[orgStr]], orgStr, speciesTssGR[[orgStr]], speciesTADs[[orgStr]], inParallel=FALSE)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
-        sampDistalPairs = bplapply(sampDistalPairs, addOrthologAnnotation, orthologsSpeciesList[[orgStr]], orgStr, speciesTssGR[[orgStr]], speciesTADs[[orgStr]], speciesHiC[[orgStr]][[1]], speciesHiC[[orgStr]][[2]], inParallel=FALSE)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-
-        sampCisPairs = bplapply(sampCisPairs, addOrthologAnnotation, orthologsSpeciesList[[orgStr]], orgStr, speciesTssGR[[orgStr]], speciesTADs[[orgStr]], speciesHiC[[orgStr]][[1]], speciesHiC[[orgStr]][[2]], inParallel=FALSE)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        
-        sampCis100Pairs = bplapply(sampCis100Pairs, addOrthologAnnotation, orthologsSpeciesList[[orgStr]], orgStr, speciesTssGR[[orgStr]], speciesTADs[[orgStr]], speciesHiC[[orgStr]][[1]], speciesHiC[[orgStr]][[2]], inParallel=FALSE)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        
         # add age related boolean flags
-        sampClosePairs <- bplapply(sampClosePairs, addAgeFlags, orthologsSpeciesList[[orgStr]], orgStr )
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
-        sampEhClosePairs <- bplapply(sampEhClosePairs, addAgeFlags, orthologsSpeciesList[[orgStr]], orgStr )
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
-        sampDistalPairs <- bplapply(sampDistalPairs, addAgeFlags, orthologsSpeciesList[[orgStr]], orgStr )
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        
-        sampCisPairs <- bplapply(sampCisPairs, addAgeFlags, orthologsSpeciesList[[orgStr]], orgStr )
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        
-        sampCis100Pairs <- bplapply(sampCis100Pairs, addAgeFlags, orthologsSpeciesList[[orgStr]], orgStr )
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        
-    }    
-    
-    # add annotation of beeing located in the same TAD
-    
-    # make GRanges objects for cis paralog pairs and random paris on same chromosome
-    sampClosePairsGR = bplapply(sampClosePairs, getPairAsGR, tssGR)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    sampEhClosePairsGR = bplapply(sampEhClosePairs, getPairAsGR, tssGR)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    sampCisPairsGR = bplapply(sampCisPairs, getPairAsGR, tssGR)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    sampCis100PairsGR = bplapply(sampCis100Pairs, getPairAsGR, tssGR)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
-    for(tadName in names(allTADs)){
-    
-        message(paste("INFO: Compute overlap with TADs from:", tadName))
-        # co-occurance within the same domain
-        sampClosePairsGR = bplapply(sampClosePairsGR, addWithinSubject, allTADs[[tadName]], tadName)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        
-        sampClosePairs <- bplapply(sampClosePairs, addSubTADmode, allTADs[[tadName]], tssGR, paste0(tadName, "_subTAD"))
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        
-        sampEhClosePairsGR = bplapply(sampEhClosePairsGR, addWithinSubject, allTADs[[tadName]], tadName)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        sampEhClosePairs <- bplapply(sampEhClosePairs, addSubTADmode, allTADs[[tadName]], tssGR, paste0(tadName, "_subTAD"))
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
-        sampCisPairsGR = bplapply(sampCisPairsGR, addWithinSubject, allTADs[[tadName]], tadName)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        sampCisPairs <- bplapply(sampCisPairs, addSubTADmode, allTADs[[tadName]], tssGR, paste0(tadName, "_subTAD"))
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        
-        sampCis100PairsGR = bplapply(sampCis100PairsGR, addWithinSubject, allTADs[[tadName]], tadName)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        sampCis100Pairs <- bplapply(sampCis100Pairs, addSubTADmode, allTADs[[tadName]], tssGR, paste0(tadName, "_subTAD"))
+        randPairs <- bplapply(randPairs, addAgeFlags, orthologsSpeciesList[[orgStr]], orgStr )
         Sys.sleep(3) # hack to fix problems with bplapply on MOGON
 
     }
+
+    # filter for random pairs in Cis
+    randPairsInCis <- lapply(randPairs, getCisPairs, tssGR)
     
-    # assign annotation in GRanges object to gene pair data.frames
-    for (i in seq(N_RAND)){
-        sampClosePairs[[i]][,names(allTADs)] <- data.frame( mcols(sampClosePairsGR[[i]])[,names(allTADs)] )
-        sampEhClosePairs[[i]][,names(allTADs)] <- data.frame( mcols(sampEhClosePairsGR[[i]])[,names(allTADs)] )
-        sampCisPairs[[i]][,names(allTADs)] <- data.frame( mcols(sampCisPairsGR[[i]])[,names(allTADs)] )
-        sampCis100Pairs[[i]][,names(allTADs)] <- data.frame( mcols(sampCis100PairsGR[[i]])[,names(allTADs)] )
-    }
+    # make a list of all sampled data sets for combined annotation
+    sampPairs <- list(
+        "sampCisPairs"=sampCisPairs, 
+        "sampDistEhPairs"=sampDistEhPairs, 
+        "sampDistEhStrandPairs"=sampDistEhStrandPairs, 
+        "sampDistEhLenPairs"=sampDistEhLenPairs)
     
-    # DEBUG SAVE
-#~     save(sampClosePairs, sampEhClosePairs, sampDistalPairs, sampCisPairs, sampCis100Pairs, file=paste0(WORKIMAGE_FILE, ".sampled_pairs_before_annotation.Rdata"))
-    #load(paste0(WORKIMAGE_FILE, ".sampled_pairs_before_Hi-C_annotation.Rdata"))
+    for (j in 1:length(sampPairs)){
     
-    # Adds Hi-C contact frequencies to a gene pair data set
-    for (i in 1:N_RAND) {
-        message(paste("Work on sample:", i))
-
-        sampClosePairs[[i]] <- addHiCfreq(sampClosePairs[[i]], tssGR, HiClistRaw, label="HiCRaw", ignoreSameBin=TRUE)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        sampClosePairs[[i]] <- addHiCfreq(sampClosePairs[[i]], tssGR, HiClist, label="HiC", ignoreSameBin=TRUE)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        sampClosePairs[[i]] <- addHiCobsExp(sampClosePairs[[i]], tssGR, expectedHiCList, HIC_RESOLUTION, HiClabel="HiC", label="HiCobsExp")
-
-        sampDistalPairs[[i]] <- addHiCfreq(sampDistalPairs[[i]], tssGR, HiClistRaw, label="HiCRaw", ignoreSameBin=TRUE)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        sampDistalPairs[[i]] <- addHiCfreq(sampDistalPairs[[i]], tssGR, HiClist, label="HiC", ignoreSameBin=TRUE)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        sampDistalPairs[[i]] <- addHiCobsExp(sampDistalPairs[[i]], tssGR, expectedHiCList, HIC_RESOLUTION, HiClabel="HiC", label="HiCobsExp")
-
-        sampCisPairs[[i]] <- addHiCfreq(sampCisPairs[[i]], tssGR, HiClistRaw, label="HiCRaw", ignoreSameBin=TRUE)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        sampCisPairs[[i]] <- addHiCfreq(sampCisPairs[[i]], tssGR, HiClist, label="HiC", ignoreSameBin=TRUE)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        sampCisPairs[[i]] <- addHiCobsExp(sampCisPairs[[i]], tssGR, expectedHiCList, HIC_RESOLUTION, HiClabel="HiC", label="HiCobsExp")
-
-        sampCis100Pairs[[i]] <- addHiCfreq(sampCis100Pairs[[i]], tssGR, HiClistRaw, label="HiCRaw", ignoreSameBin=TRUE)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        sampCis100Pairs[[i]] <- addHiCfreq(sampCis100Pairs[[i]], tssGR, HiClist, label="HiC", ignoreSameBin=TRUE)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-        sampCis100Pairs[[i]] <- addHiCobsExp(sampCis100Pairs[[i]], tssGR, expectedHiCList, HIC_RESOLUTION, HiClabel="HiC", label="HiCobsExp")
-    }
+        message(paste("INFO: Start annotating the sampled pairs:", names(sampPairs)[j]))
         
-    message("INFO: Finished Hi-C on sampled pairs")
-    
-    # add capture C
-    sampClosePairs <- bplapply(1:N_RAND, function(i){
-        sampClosePairs[[i]][,"captureC_raw"] <- getPairwiseMatrixScoreByName(sampClosePairs[[i]], captureHiC[["raw"]], replaceZeroByNA=TRUE)
-        sampClosePairs[[i]][,"captureC_ObsExp"] <- getPairwiseMatrixScoreByName(sampClosePairs[[i]], captureHiC[["obsExp"]], replaceZeroByNA=TRUE)
-        return(sampClosePairs[[i]])
-    })
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
-    sampDistalPairs <- bplapply(1:N_RAND, function(i){
-        sampDistalPairs[[i]][,"captureC_raw"] <- getPairwiseMatrixScoreByName(sampDistalPairs[[i]], captureHiC[["raw"]], replaceZeroByNA=TRUE)
-        sampDistalPairs[[i]][,"captureC_ObsExp"] <- getPairwiseMatrixScoreByName(sampDistalPairs[[i]], captureHiC[["obsExp"]], replaceZeroByNA=TRUE)
-        return(sampDistalPairs[[i]])
-    })
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
-    sampCisPairs <- bplapply(1:N_RAND, function(i){
-        sampCisPairs[[i]][,"captureC_raw"] <- getPairwiseMatrixScoreByName(sampCisPairs[[i]], captureHiC[["raw"]], replaceZeroByNA=TRUE)
-        sampCisPairs[[i]][,"captureC_ObsExp"] <- getPairwiseMatrixScoreByName(sampCisPairs[[i]], captureHiC[["obsExp"]], replaceZeroByNA=TRUE)
-        return(sampCisPairs[[i]])
-    })
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
-    sampCis100Pairs <- bplapply(1:N_RAND, function(i){
-        sampCis100Pairs[[i]][,"captureC_raw"] <- getPairwiseMatrixScoreByName(sampCis100Pairs[[i]], captureHiC[["raw"]], replaceZeroByNA=TRUE)
-        sampCis100Pairs[[i]][,"captureC_ObsExp"] <- getPairwiseMatrixScoreByName(sampCis100Pairs[[i]], captureHiC[["obsExp"]], replaceZeroByNA=TRUE)
-        return(sampCis100Pairs[[i]])
-    })
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
-    message("INFO: Finished Capture-C on sampled pairs")
-    
-    # add common compartment and subcompartment
-    randPairs <- lapply(randPairs, addCommonCompartment, tssGR, compGR, subCompGR)
-    sampClosePairs <- lapply(sampClosePairs, addCommonCompartment, tssGR, compGR, subCompGR)
-    sampEhClosePairs <- lapply(sampEhClosePairs, addCommonCompartment, tssGR, compGR, subCompGR)
-    sampDistalPairs <- lapply(sampDistalPairs, addCommonCompartment, tssGR, compGR, subCompGR)
-    sampCisPairs <- lapply(sampCisPairs, addCommonCompartment, tssGR, compGR, subCompGR)
-    sampCis100Pairs <- lapply(sampCis100Pairs, addCommonCompartment, tssGR, compGR, subCompGR)
-    
-    # add duplication age
-    randPairs <- bplapply(randPairs, addAge, pair.ac, uniPSwissToEnsgDF)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    sampClosePairs <- bplapply(sampClosePairs, addAge, pair.ac, uniPSwissToEnsgDF)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    sampEhClosePairs <- bplapply(sampEhClosePairs, addAge, pair.ac, uniPSwissToEnsgDF)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    sampDistalPairs <- bplapply(sampDistalPairs, addAge, pair.ac, uniPSwissToEnsgDF)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    sampCisPairs <- bplapply(sampCisPairs, addAge, pair.ac, uniPSwissToEnsgDF)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    sampCis100Pairs <- bplapply(sampCis100Pairs, addAge, pair.ac, uniPSwissToEnsgDF)
-    Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+        # annotate gene symbols and strand
+        sampPairs[[j]] <- lapply(sampPairs[[j]], addHGNC, tssGR)
+        sampPairs[[j]] <- lapply(sampPairs[[j]], addSameStrand, tssGR)
+        
+        # annotate common enhancers
+        sampPairs[[j]] <- bplapply(sampPairs[[j]], addCommonEnhancer, gene2ehID)
+        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+        sampPairs[[j]] <- bplapply(sampPairs[[j]], addRelativeEnhancerPosition, tssGR, gene2ehID, ehGR)
+        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+        
+        # add expression in IMR90 cells
+        sampPairs[[j]] <- lapply(sampPairs[[j]], addPairExp, expDFlist[["ENCODE_cell_lines"]], expCol="IMR_90", label="exp_IMR90")
+        
+        
+        # add expression correlation
+        for (expName in names(expDFlist)) {
+            
+            message(paste("INFO: Annotate sampled pairs with expression form:", expName))
+            expDF <- expDFlist[[expName]]
+        
+            sampPairs[[j]] <- bplapply(sampPairs[[j]], addCor, expDF, colName=paste0(expName, "_expCor"))
+            Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+        }
+        
+        # save temp
+        #~ save.image(paste0(WORKIMAGE_FILE, ".sampling_and_after_expression_annotation.Rdata"))
+        
+        # annotate with orthologs in other species:
+        for (orgStr in names(orgStr2Name)){
+            
+            message(paste("INFO: Annotate pairs with ortholog annotation from:", orgStr))
+            
+            # add ortholog information to random sampled pairs on same chromosome
+            sampPairs[[j]] <- bplapply(sampPairs[[j]], addOrthologAnnotation, orthologsSpeciesList[[orgStr]], orgStr, speciesTssGR[[orgStr]], speciesTADs[[orgStr]], speciesHiC[[orgStr]][[1]], speciesHiC[[orgStr]][[2]], inParallel=FALSE)
+        
+            # add age related boolean flags
+            sampPairs[[j]] <- bplapply(sampPairs[[j]], addAgeFlags, orthologsSpeciesList[[orgStr]], orgStr )
+            Sys.sleep(3) # hack to fix problems with bplapply on MOGON
 
-    # add HIPPIE
-    randPairs <- lapply(randPairs, addHIPPIE, hippie)
-    sampClosePairs <- lapply(sampClosePairs, addHIPPIE, hippie)
-    sampEhClosePairs <-lapply(sampEhClosePairs, addHIPPIE, hippie)
-    sampDistalPairs <- lapply(sampDistalPairs, addHIPPIE, hippie)
-    sampCisPairs <- lapply(sampCisPairs, addHIPPIE, hippie)
-    sampCis100Pairs <- lapply(sampCis100Pairs, addHIPPIE, hippie)
+        }
+        
+        # add annotation of beeing located in the same TAD        
+        # make GRanges objects for cis paralog pairs and random paris on same chromosome
+        gplGR = bplapply(sampPairs[[j]], getPairAsGR, tssGR)
+        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+        
+        for(tadName in names(allTADs)){
+        
+            message(paste("INFO: Compute overlap with TADs from:", tadName))
+            # co-occurance within the same domain
+            gplGR = bplapply(gplGR, addWithinSubject, allTADs[[tadName]], tadName)
+            Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+            
+            sampPairs[[j]] <- bplapply(sampPairs[[j]], addSubTADmode, allTADs[[tadName]], tssGR, paste0(tadName, "_subTAD"))
+            Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+        }
+        
+        # assign annotation in GRanges object to gene pair data.frames
+        for (i in seq(N_RAND)){
+            sampPairs[[j]][[i]][,names(allTADs)] <- data.frame( mcols(gplGR[[i]])[,names(allTADs)] )
+        }
+        
+        # DEBUG SAVE
+    #~     save(sampClosePairs, sampEhClosePairs, sampDistalPairs, sampCisPairs, sampCisPairs, file=paste0(WORKIMAGE_FILE, ".sampled_pairs_before_annotation.Rdata"))
+        #load(paste0(WORKIMAGE_FILE, ".sampled_pairs_before_Hi-C_annotation.Rdata"))
+        
+        # Adds Hi-C contact frequencies to a gene pair data set
+        for (i in 1:N_RAND) {
+            message(paste("Work on sample:", i))
     
-    save(randPairs, sampClosePairs, sampEhClosePairs, sampDistalPairs, sampCisPairs, sampCis100Pairs, file=paste0(WORKIMAGE_FILE, ".sampled_pairs_after_annotation.Rdata"))
+            sampPairs[[j]][[i]] <- addHiCfreq(sampPairs[[j]][[i]], tssGR, HiClistRaw, label="HiCRaw", ignoreSameBin=TRUE)
+            Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+            sampPairs[[j]][[i]] <- addHiCfreq(sampPairs[[j]][[i]], tssGR, HiClist, label="HiC", ignoreSameBin=TRUE)
+            Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+            sampPairs[[j]][[i]] <- addHiCobsExp(sampPairs[[j]][[i]], tssGR, expectedHiCList, HIC_RESOLUTION, HiClabel="HiC", label="HiCobsExp")
+    
+        }
+            
+        message("INFO: Finished Hi-C on sampled pairs")
+        
+        # add capture C
+        sampPairs[[j]] <- bplapply(1:N_RAND, function(i){
+            sampPairs[[j]][[i]][,"captureC_raw"] <- getPairwiseMatrixScoreByName(sampPairs[[j]][[i]], captureHiC[["raw"]], replaceZeroByNA=TRUE)
+            sampPairs[[j]][[i]][,"captureC_ObsExp"] <- getPairwiseMatrixScoreByName(sampPairs[[j]][[i]], captureHiC[["obsExp"]], replaceZeroByNA=TRUE)
+            return(sampPairs[[j]][[i]])
+        })
+        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+        
+        message("INFO: Finished Capture-C on sampled pairs")
+
+        # add common compartment and subcompartment
+        sampPairs[[j]] <- lapply(sampPairs[[j]], addCommonCompartment, tssGR, compGR, subCompGR)
+        
+        # add duplication age
+        sampPairs[[j]] <- bplapply(sampPairs[[j]], addAge, pair.ac, uniPSwissToEnsgDF)
+        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+    
+        # add HIPPIE
+        sampPairs[[j]] <- lapply(sampPairs[[j]], addHIPPIE, hippie)
+
+        # add house keeping gene
+        sampPairs[[j]] <- lapply(sampPairs[[j]], addInGeneSet, housekeepingGenes, "housekeeping")
+            
+        # add min UniProt evidence
+        sampPairs[[j]] <- lapply(sampPairs[[j]], addMinEvidence, tssGR)
+            
+    }
+
+    # attach list items to search path by their names in list of sampled pairs
+#~     attach(sampPairs, warn.conflicts=FALSE)
+    sampCisPairs <- sampPairs[["sampCisPairs"]]
+    sampDistEhPairs <- sampPairs[["sampDistEhPairs"]]
+    sampDistEhStrandPairs <- sampPairs[["sampDistEhStrandPairs"]]
+    sampDistEhLenPairs <- sampPairs[["sampDistEhLenPairs"]]
+
+    save(randPairs, sampCisPairs, sampDistEhPairs, sampDistEhStrandPairs, sampDistEhLenPairs, file=paste0(WORKIMAGE_FILE, ".sampled_pairs_after_annotation.Rdata"))
     #load(paste0(WORKIMAGE_FILE, ".sampled_pairs_after_annotation.Rdata"))
 
     # combine all sampling replicates to one data frame
     randPairsCombined <- do.call("rbind", randPairs)
     randPairsInCisCombined <- do.call("rbind", randPairsInCis)
-    sampClosePairsCombined <- do.call("rbind", sampClosePairs)
-    sampEhClosePairsCombined <- do.call("rbind", sampEhClosePairs)
-    sampDistalPairsCombined <- do.call("rbind", sampDistalPairs)
     sampCisPairsCombined <- do.call("rbind", sampCisPairs)
-    sampCis100PairsCombined <- do.call("rbind", sampCis100Pairs)
-    
+    sampDistEhPairsCombined <- do.call("rbind", sampDistEhPairs)
+    sampDistEhStrandPairsCombined <- do.call("rbind", sampDistEhStrandPairs)
+    sampDistEhLenPairsCombined <- do.call("rbind", sampDistEhLenPairs)
+
     #-----------------------------------------------------------------------
     # save a work image after sampling and annotation.
     #-----------------------------------------------------------------------
     save.image(paste0(WORKIMAGE_FILE, ".sampling_and_annotation.Rdata"))
-#~     stop("INFO: Stopped script HERE!")
 
 }else{
+    message(paste("INFO: Start loading workimage form this file:",  paste0(WORKIMAGE_FILE, ".sampling_and_annotation.Rdata")))
     load(paste0(WORKIMAGE_FILE, ".sampling_and_annotation.Rdata"))
 }
 
+#~ stop("INFO: Stopped script HERE!")
 
 #=======================================================================
 # Build data frames for analysis
@@ -780,81 +708,6 @@ breaksExpCor <- c(-1, -.5, 0, .5, 1)
 breaksCis = 10^(0:9) / 10^3
 breaksTAD = c(0, 10, 1000, Inf)
 
-cC <- intersect(names(allCisPairs), names(sampCis100PairsCombined))
-aP <- rbind(allCisPairs[,cC], sampCis100PairsCombined[,cC])
-
-plotDFcis100HiC = data.frame(
-        group = c(rep("paralogs", nrow(allCisPairs)), rep("sampled", nrow(sampCis100PairsCombined))),
-        replicate = c(rep(1, nrow(allCisPairs)), rep(1:N_RAND, each=nrow(allCisPairs))), 
-        HiCRaw = aP[,"HiCRaw"],
-        HiC = aP[,"HiC"],
-        HiCobsExp = aP[,"HiCobsExp"],
-        captureC_raw = aP[,"captureC_raw"],
-        captureC_ObsExp = aP[,"captureC_ObsExp"],
-        inTAD = factor(aP[,"Rao_IMR90"], levels=c(TRUE, FALSE), labels=c("same TAD", "not same TAD")),
-        subTAD = aP[,"Rao_IMR90_subTAD"],
-        dupAgeGroup = factor(aP[,"mmusculus_commonOrtholg"], c(TRUE, FALSE), c("Young", "Old")),
-        age = aP[,"age"],
-        HIPPIE = aP[,"HIPPIE"],
-        PPI = factor(aP[,"HIPPIE"] >= HIPPIE_MEDIUM, levels=c(TRUE, FALSE), labels=c("PPI", "no PPI")),
-        dist=abs(aP[,"dist"])/10^3,
-        distBin=as.factor(breaksCis[.bincode(abs(aP[,"dist"])/10^3, breaksCis)]),
-        distTadBin=factor(breaksTAD[.bincode(abs(aP[,"dist"])/10^3, breaksTAD)], levels=breaksTAD[1:3], labels=c("<10kb", "10-1000kb", ">1000kb")),
-        avgExp=apply(aP[,c("g1_exp_IMR90", "g2_exp_IMR90")], 1, mean),
-        expBin=factor(breaksExp[.bincode(apply(aP[,c("g1_exp_IMR90", "g2_exp_IMR90")], 1, mean)+1, breaksExp)], labels=c("no", "low", "high")),
-        expCor=aP[,"GTEx_expCor"],
-        expCorBin=factor(breaksExpCor[.bincode(aP[,"GTEx_expCor"], breaksExpCor)], labels=c("high neg", "low neg", "low pos", "high pos"))
-    )
-plotDFcis100HiC <- addNoZero(plotDFcis100HiC)
-
-plotDFcis100HiC[,"inTADclose"] <- as.character(plotDFcis100HiC$distTadBin)
-plotDFcis100HiC[plotDFcis100HiC$distTadBin == "10-1000kb" ,"inTADclose"] <- as.character(plotDFcis100HiC[plotDFcis100HiC$distTadBin == "10-1000kb" ,"inTAD"])
-plotDFcis100HiC$inTADclose <- factor(plotDFcis100HiC$inTADclose, levels=c("<10kb", "same TAD", "not same TAD", ">1000kb"))
-
-# add three category sub TAD structure:
-sub3TAD <- as.character(plotDFcis100HiC[,"subTAD"])
-sub3TAD[sub3TAD == "no TAD" | sub3TAD == "diff TAD"] <- "not same TAD"
-sub3TAD[sub3TAD == "diff sub TAD"] <- "same TAD"
-plotDFcis100HiC[,"sub3TAD"] <- factor(sub3TAD, levels=c("not same TAD", "same TAD", "same sub TAD"))
-
-# write data.frame as table to output file
-write.table(plotDFcis100HiC, file=paste0(outPrefix, ".plotDFcis100HiC.csv"),
-    sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
-
-#-----------------------------------------------------------------------
-# Make Enhancer data.frame for plotting with ggplot2 for all cis pairs
-cC <- intersect(names(closePairs), names(sampEhClosePairsCombined))
-aP <- rbind(closePairs[,cC], sampEhClosePairsCombined[,cC])
-
-plotDFeh = data.frame(
-        group = c(rep("paralogs", nrow(closePairs)), rep("sampled", nrow(sampEhClosePairsCombined))),
-        replicate = c(rep(1, nrow(closePairs)), rep(1:N_RAND, each=nrow(closePairs))), 
-        inTAD = factor(aP[,"Rao_IMR90"], levels=c(TRUE, FALSE), labels=c("same TAD", "not same TAD")),
-        subTAD = aP[,"Rao_IMR90_subTAD"],
-        eh = aP[,"commonEnhancer"] > 0,
-        commonEnhancer = aP[,"commonEnhancer"],
-        dupAgeGroup = factor(aP[,"mmusculus_commonOrtholg"], c(TRUE, FALSE), c("Young", "Old")),
-        age = aP[,"age"],
-        HIPPIE = aP[,"HIPPIE"],
-        PPI = factor(aP[,"HIPPIE"] >= HIPPIE_MEDIUM, levels=c(TRUE, FALSE), labels=c("PPI", "no PPI")),
-        dist=abs(aP[,"dist"])/10^3,
-        distBin=as.factor(breaksCis[.bincode(abs(aP[,"dist"])/10^3, breaksCis)]),
-        distTadBin=factor(breaksTAD[.bincode(abs(aP[,"dist"])/10^3, breaksTAD)], levels=breaksTAD[1:3], labels=c("<10kb", "10-1000kb", ">1000kb")),
-        avgExp=apply(aP[,c("g1_exp_IMR90", "g2_exp_IMR90")], 1, mean),
-        expBin=factor(breaksExp[.bincode(apply(aP[,c("g1_exp_IMR90", "g2_exp_IMR90")], 1, mean)+1, breaksExp)], labels=c("no", "low", "high")),
-        expCor=aP[,"GTEx_expCor"],
-        expCorBin=factor(breaksExpCor[.bincode(aP[,"GTEx_expCor"], breaksExpCor)], labels=c("high neg", "low neg", "low pos", "high pos"))
-    )
-
-# add three category sub TAD structure:
-sub3TAD <- as.character(plotDFeh[,"subTAD"])
-sub3TAD[sub3TAD == "no TAD" | sub3TAD == "diff TAD"] <- "not same TAD"
-sub3TAD[sub3TAD == "diff sub TAD"] <- "same TAD"
-plotDFeh[,"sub3TAD"] <- factor(sub3TAD, levels=c("not same TAD", "same TAD", "same sub TAD"))
-
-# write data.frame as table to output file
-write.table(plotDFeh, file=paste0(outPrefix, ".plotDFeh.csv"),
-    sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
 
 #=======================================================================
 # make data.frame with all annotations
@@ -866,7 +719,6 @@ paralogPairsUniq$g2 <- paralogPairsUniq[,2]
 
 commonCols <- intersect(names(paralogPairsUniq), names(randPairsCombined))
 
-
 groupFactor <- factor(rep(c("paralog", "random"), c(nrow(paralogPairsUniq), nrow(randPairsCombined))), levels=c("paralog", "random"))
 
 allPairs <- rbind.fill(paralogPairsUniq[,commonCols], randPairsCombined[,commonCols])
@@ -874,111 +726,141 @@ allPairs$group <- groupFactor
 # add flag for cis pairs
 allPairs$sameChrom <- !is.na(allPairs[,"dist"])
 
+# write data.frame as table to output file
+write.table(allPairs, file=paste0(outPrefix, ".allPairs.csv"),
+    sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+
 #=======================================================================
 # combine all parlogs and all randomly sampled pairs
 #=======================================================================
-# DIMENSION:
-# - paralog vs sampled      (2)
-# - close vs distal         (2)
-# - TAD source              (10)
-# - Expression              (4)
-# - other species           (2)
 
+nPairs <- nrow(allCisPairs)
+allCisPairs$g1 <- allCisPairs[,1]
+allCisPairs$g2 <- allCisPairs[,2]
 
-closePairs$g1 <- closePairs[,1]
-closePairs$g2 <- closePairs[,2]
-distalPairs$g1 <- distalPairs[,1]
-distalPairs$g2 <- distalPairs[,2]
+allPairDFs <- list(allCisPairs, sampCisPairsCombined, sampDistEhPairsCombined, sampDistEhStrandPairsCombined, sampDistEhLenPairsCombined)
+names(allPairDFs) <- c("paralogs", "sampled by distance", "sampled by distance\nand enhancer", "sampled by distance,\nenhancer and strand", "sampled by distance,\nenhancer and gene length")
 
+# get common columns in all data sets
+cC <- Reduce(intersect, lapply(allPairDFs, names))
 
-allCombined <- rbind.fill(closePairs, distalPairs, sampClosePairsCombined, sampDistalPairsCombined)
+# combine all pairs by using only the common columns
+aP <- do.call("rbind", lapply(allPairDFs, function(df) df[,cC]))
 
 # add noZero HI-C 
-allCombined <- addNoZero(allCombined)
+aP <- addNoZero(aP)
+
+# add further columns
+aP[,"group"] <- factor(rep(c("paralog", "sampled"), c(nrow(allPairDFs[[1]]), sum(sapply(allPairDFs[2:length(allPairDFs)], nrow)))), levels=c("paralog", "sampled"))
+aP[,"sampType"] <- factor(rep(names(allPairDFs), times=sapply(allPairDFs, nrow)), levels=names(allPairDFs))
+aP[,"replicate"] <- c(rep(1, nPairs), replicate(length(allPairDFs)-1, rep(1:N_RAND, each=nPairs)))
+aP[,"dist"] <- abs(aP[,"dist"]) / 10^3
+aP[,"distGroup"] <- factor(ifelse(aP[,"dist"] <= MAX_DIST/10^3, "close", "distal"), levels=c("close", "distal"))
+aP[,"dupAgeGroup"] = factor(aP[,"mmusculus_commonOrtholg"], c(TRUE, FALSE), c("Young", "Old"))
+aP[,"PPI"] <- factor(aP[,"HIPPIE"] >= HIPPIE_MEDIUM, levels=c(TRUE, FALSE), labels=c("PPI", "no PPI"))
+aP[,"distBin"] <- as.factor(breaksCis[.bincode(aP[,"dist"], breaksCis)])
+aP[,"distTadBin"] <- factor(breaksTAD[.bincode(aP[,"dist"], breaksTAD)], levels=breaksTAD[1:3], labels=c("<10kb", "10-1000kb", ">1000kb"))
+aP[,"avgExp"] <- apply(aP[,c("g1_exp_IMR90", "g2_exp_IMR90")], 1, mean)
+aP[,"expBin"] <- factor(breaksExp[.bincode(apply(aP[,c("g1_exp_IMR90", "g2_exp_IMR90")], 1, mean)+1, breaksExp)], labels=c("no", "low", "high"))
+aP[,"eh"] <- aP[,"commonEnhancer"] > 0
+
+# save bright allDF data set with column for each source:
+write.table(aP, file=paste0(outPrefix, ".allPairs_broad.csv"),
+    sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
 
 
-groupFactor <- factor(rep(c("paralog", "sampled"), c(nrow(closePairs)+nrow(distalPairs), nrow(sampClosePairsCombined)+nrow(sampDistalPairsCombined))), levels=c("paralog", "sampled"))
-distGroupFactor <- factor(c(  
-    rep(c("close", "distal"), c(nrow(closePairs), nrow(distalPairs))),
-    rep(c("close", "distal"), c(nrow(sampClosePairsCombined), nrow(sampDistalPairsCombined)))
-))
-tadFactor <- factor(names(allTADs), levels=names(allTADs))
-expFactor <- factor(names(expDFlist), levels=names(expDFlist))
-speciesFactor <- factor(orgStr2Name, orgStr2Name)
+# DIMENSION:
+# - paralog paris cis       (1560)
+# - sampling replicates     (1+10)
+# - sample types            (4) dsit/dist+eh/dist+eh+strand/dist+eh+len
+# - TAD source              (10) 
+# - Expression              (4)
+# - other species           (2)
+# N=(1560 + 1560*10*4) * 10 * 4 * 2 = 5116800
 
+# remove all TAD, expression, and species related column names
+sourceSpecificCols <- c(
+    names(allTADs),
+    paste0(names(allTADs), "_subTAD"),
+    paste0(names(expDFlist), "_expCor"),
+    as.vector(sapply(names(speciesSeqInfo), grep, cC, value=TRUE))
+)
+
+aPflat <- aP[,setdiff(names(aP), sourceSpecificCols)]
+
+# define number fo different sources 
+nTAD <- length(allTADs)
+nExp <- length(expDFlist)
 nSpecies  <- length(orgStr2Name) 
-nTAD <- length(allTADs)
 
-allDF <- data.frame(
-    group = rep(groupFactor, nTAD*nExp*nSpecies),
-    distGroup = rep(distGroupFactor, nTAD*nExp*nSpecies),
-    dist = rep(abs(allCombined[,"dist"])/10^3, nTAD*nExp*nSpecies),
-    strand = factor(rep(allCombined[,"sameStrand"], nTAD*nExp*nSpecies), c(TRUE, FALSE), c("same", "opposite")),
-    tadSource = rep(rep(tadFactor, each=nrow(allCombined)), nExp*nSpecies),
-    inTAD = rep(unlist(lapply(names(allTADs), function(t) allCombined[,t])), nExp*nSpecies),
-    expCor = rep(unlist(lapply(names(expDFlist), function(e) rep(allCombined[,paste0(e,"_expCor")], nTAD))), nSpecies),
-    expSource = rep(rep(expFactor, each=nrow(allCombined)*nTAD), nSpecies),
-    species = rep(speciesFactor, each=nrow(allCombined)*nTAD*nExp)
+# define columns for species specific information
+#speciesCols <- c("one2one", "sameChrom", "dist", "TAD", "HiC", "HiCnorm", "commonOrtholg", "NotOne2one")
+speciesCols <- str_split_fixed(grep(names(orgStr2Name)[1], cC, value=TRUE), '_', 2)[,2]
+
+
+
+# create data.frame with multiple rows per gene pair for the different data sources
+allDF <- cbind(
+    aPflat[rep(1:nrow(aP), nTAD*nExp*nSpecies),],
+    data.frame(
+        tadSource = factor(rep(rep(names(allTADs), each=nrow(aP)), nExp*nSpecies), levels=names(allTADs)),
+        inTAD = factor(rep( unlist(aP[,names(allTADs)]), nExp*nSpecies), levels=c(TRUE, FALSE), labels=c("same TAD", "not same TAD")),
+        subTAD = rep( unlist(aP[,paste0(names(allTADs), "_subTAD")]), nExp*nSpecies),
+        expSource = factor(rep(rep(names(expDFlist), each=nrow(aP)*nTAD), nSpecies), levels=names(expDFlist)),
+        expCor = rep( unlist(aP[,rep(paste0(names(expDFlist), "_expCor"), each=nTAD)]), nSpecies),
+        expCorBin=factor(breaksExpCor[.bincode(unlist(aP[,rep(paste0(names(expDFlist), "_expCor"), each=nTAD)]), breaksExpCor)], labels=c("high neg", "low neg", "low pos", "high pos")),
+        speciesFactor = factor(rep(orgStr2Name, each=nrow(aP)*nTAD*nExp), levels=orgStr2Name)
+    ),
+    do.call("rbind", lapply(names(orgStr2Name), function(spec){
+        spDF <- aP[,paste0(spec, "_", speciesCols)]
+        names(spDF) <- paste0("ortholog_", speciesCols)
+        return(spDF[rep(1:nrow(aP), nTAD*nExp),])
+    }))
 )
 
-speciesCols <- c("one2one", "sameChrom", "dist", "TAD", "HiC", "HiCnorm", "commonOrtholg", "NotOne2one")
+# add specific group column for being in TAD and/or distal
+allDF[,"inTADclose"] <- as.character(allDF$distTadBin)
+allDF[allDF$distTadBin == "10-1000kb" ,"inTADclose"] <- as.character(allDF[allDF$distTadBin == "10-1000kb" ,"inTAD"])
+allDF$inTADclose <- factor(allDF$inTADclose, levels=c("<10kb", "same TAD", "not same TAD", ">1000kb"))
 
-speciesDF <- do.call("rbind", lapply(names(orgStr2Name), function(spec){
- spDF <- allCombined[,paste0(spec, "_", speciesCols)]
- names(spDF) <- paste0("ortholog_", speciesCols)
- return(spDF[rep(1:nrow(allCombined), nTAD*nExp),])
- }))
 
-commonCols <- c("g1", "g2", "HGNC_g1", "HGNC_g2", "hsapiens_paralog_perc_id", "hsapiens_paralog_perc_id_r1", "hsapiens_paralog_dn", "hsapiens_paralog_ds", 
-"sameStrand",
-HiCcolumns,
-"comp_combination", "same_comp_region", "common_comp",
-"subcomp_combination", "same_subcomp_region", "common_subcomp", "age", "g1_exp_IMR90", "g2_exp_IMR90")
+# add three category sub TAD structure:
+sub3TAD <- as.character(allDF[,"subTAD"])
+sub3TAD[sub3TAD == "no TAD" | sub3TAD == "diff TAD"] <- "not same TAD"
+sub3TAD[sub3TAD == "diff sub TAD"] <- "same TAD"
+allDF[,"sub3TAD"] <- factor(sub3TAD, levels=c("not same TAD", "same TAD", "same sub TAD"))
 
-commonDF <- allCombined[rep(1:nrow(allCombined), nTAD*nExp*nSpecies), commonCols]
+# make ortholog_dist absolut and in kb
+allDF[,"ortholog_dist"] <- abs(allDF[,"ortholog_dist"]) / 10^3
+allDF[,"ortholog_TAD"] <- factor(allDF[,"ortholog_TAD"], c(TRUE, FALSE), c("same TAD", "not same TAD"))
 
-allDF <- cbind(allDF, commonDF, speciesDF)
+# add NoZero column for species Hi-C data
+allDF <- addNoZero(allDF, cols=c("ortholog_HiC", "ortholog_HiCnorm"))
 
-write.table(allDF, file=paste0(outPrefix, ".allDF.csv"),
-    sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+#~ # save as table
+#~ write.table(allDF, file=paste0(outPrefix, ".allDF.csv"),
+#~     sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
 
-#~ allDF <- read.table(paste0(outPrefix, ".allDF.csv"), header=TRUE, sep="\t")
+# save both data sets as image
+save(aP, allDF, file=paste0(WORKIMAGE_FILE, ".aP_allDF.Rdata"))
 
-#=======================================================================
-# allDF for sampling by enhancers
-#=======================================================================
-
-ehCombined <- rbind.fill(closePairs, sampEhClosePairsCombined)
-
-groupFactor <- factor(rep(c("paralog", "sampled"), c(nrow(closePairs), nrow(sampEhClosePairsCombined))), levels=c("paralog", "sampled"))
-tadFactor <- factor(names(allTADs), levels=names(allTADs))
-expFactor <- factor(names(expDFlist), levels=names(expDFlist))
-
-nTAD <- length(allTADs)
-
-ehDF <- data.frame(
-    group = rep(groupFactor, nTAD*nExp),
-    dist = rep(abs(ehCombined[,"dist"])/10^3, nTAD*nExp),
-    strand = factor(rep(ehCombined[,"sameStrand"], nTAD*nExp), c(TRUE, FALSE), c("same", "opposite")),
-    tadSource = rep(rep(tadFactor, each=nrow(ehCombined)), nExp),
-    inTAD = rep(unlist(lapply(names(allTADs), function(t) ehCombined[,t])), nExp),
-    expCor = unlist(lapply(names(expDFlist), function(e) rep(ehCombined[,paste0(e,"_expCor")], nTAD))),
-    expSource = rep(expFactor, each=nrow(ehCombined)*nTAD)
-)
-
-commonEhCols <- intersect(names(closePairs), names(sampEhClosePairsCombined))
-commonEhDF <- ehCombined[rep(1:nrow(ehCombined), nTAD*nExp), commonEhCols]
-
-ehDF <- cbind(ehDF, commonEhDF)
-
-write.table(ehDF, file=paste0(outPrefix, ".ehDF.csv"),
-    sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+message("INFO: Wrote aP and allDF to output image file.")
 
 #=======================================================================
+# 6.) Mouse and dog paralog analysis
+#=======================================================================
+runBasicParalogAnalysis(paste0(outPrefix, ".mouse"), paralogPairsMouse, "mmusculus_paralog_ds", speciesTssGR[["mmusculus"]], speciesGenesGR[["mmusculus"]], speciesTADs[["mmusculus"]], tissueName="Mouse", HiClist=speciesHiC[["mmusculus"]][[1]], HiClistNorm=speciesHiC[["mmusculus"]][[2]])
+message("Finish Mouse paralog analysis!")
+
+runBasicParalogAnalysis(paste0(outPrefix, ".dog"), paralogPairsDog, "cfamiliaris_paralog_ds", speciesTssGR[["cfamiliaris"]], speciesGenesGR[["cfamiliaris"]], speciesTADs[["cfamiliaris"]], tissueName="Dog", HiClist=speciesHiC[["cfamiliaris"]][[1]], HiClistNorm=speciesHiC[["cfamiliaris"]][[2]])
+message("Finish Dog paralog analysis!")
+
+
 
 
 #=======================================================================
 # save workspace image
 #=======================================================================
-save.image(WORKIMAGE_FILE)
+message("INFO: Finished with sampling_and_annotation script.")
+#save.image(WORKIMAGE_FILE)
 #INFO: FANTOM enhancer map: 65953 of 66942 enhancer-associated genes could be mapped uniquelly to ENSG ID

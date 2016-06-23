@@ -509,7 +509,7 @@ add.alpha <- function(col, alpha=1){
 # according to: http://www.r-bloggers.com/ggplot2-cheatsheet-for-visualizing-distributions/
 # use grid::grid.draw() to plot the return value
 #-----------------------------------------------------------------------
-dotplotWithDensityLogXY <- function(plotDF, xvar, yvar, zvar, COL=c("orange", "purple"), ALPHA=.5, fit=FALSE, xlog=TRUE, ylog=TRUE){
+dotplotWithDensityLogXY <- function(plotDF, xvar, yvar, zvar, COL=c("orange", "purple"), ALPHA=.5, fit=FALSE, xlog=TRUE, ylog=TRUE, ylab=yvar, xlab=xvar){
 
     #placeholder plot - prints nothing at all
     empty <- ggplot()+geom_point(aes(1,1), colour="white") +
@@ -534,13 +534,13 @@ dotplotWithDensityLogXY <- function(plotDF, xvar, yvar, zvar, COL=c("orange", "p
           geom_smooth(alpha=ALPHA) + 
 #~           scale_x_log10() + scale_y_log10() + 
           scale_color_manual(values = COL) + scale_fill_manual(values = COL) + theme_bw() + 
-          theme(legend.position=c(1,1),legend.justification=c(-.01,-.01), plot.margin =rep(grid::unit(c(0,0,1,1), "cm"),4))
+          theme(legend.position=c(1,1),legend.justification=c(-.01,-.01), plot.margin =rep(grid::unit(c(0,0,1,1), "cm"),4)) + labs(x=xlab, y=ylab)
     }else{
         scatter <- ggplot(plotDF, aes_string(x=xvar, y=yvar)) + 
           geom_point(aes_string(color=zvar), alpha=ALPHA) + 
 #~           scale_x_log10() + scale_y_log10() + 
           scale_color_manual(values = COL) + scale_fill_manual(values = COL) + theme_bw() + 
-          theme(legend.position=c(1,1),legend.justification=c(-.01,-.01), plot.margin =rep(grid::unit(c(0,0,1,1), "cm"),4))  
+          theme(legend.position=c(1,1),legend.justification=c(-.01,-.01), plot.margin =rep(grid::unit(c(0,0,1,1), "cm"),4)) + labs(x=xlab, y=ylab) 
     }
     #marginal density of x - plot on top
     plot_top <- ggplot(plotDF, aes_string(xvar, fill=zvar)) + 
@@ -587,6 +587,11 @@ addPictureLabels <- function(p, figPath){
     require(grid)
     require(gtable)
 
+    p <- p + theme(
+        strip.background = element_rect(colour = "black", fill = "white", size=.5)
+        )
+    #~ strip.text.x = element_text(size=4, angle=90)                                          
+    
     # parse PNG figures
     figs <- sapply(figPath, readPNG)
 
@@ -594,12 +599,16 @@ addPictureLabels <- function(p, figPath){
 
     strips <- grep("strip", g$layout$name)
     
-    new_grobs <- lapply(figs, rasterGrob, width=1, height=1)
+    new_grobs <- lapply(figs, rasterGrob, width=.95, height=.45)
+
     
     g <- with(g$layout[strips,],
               gtable_add_grob(g, new_grobs,
                               t=t, l=l, b=b, r=r, name="strip_figs") )
-    
+#~     g <- editGrob(grid.force(g), gPath("GRID.stripGrob", "GRID.text"), grep = TRUE, global = TRUE,
+#~           just = "top")
+#~     grid.draw(g)
+
     return(g)
 }
 
