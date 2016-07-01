@@ -1,8 +1,8 @@
 # paralog_regulation
 
-This repository contains the source code for all analysis in the study Ibn-Salem et al. 2016, "Co-regulation of paralog genes in the three-dimensional chromatin architecture".
+This repository contains the source code for all analysis in the study Ibn-Salem et al. 2016, "Co-regulation of paralog genes in the three-dimensional chromatin architecture" (in revision).
 
-The following documentation guides through all steps including downloading of external source data, retriving paralog genes from Ensemble, filtering, annotation, and running all analysis.
+The following documentation guides through all steps including downloading of external source data, retrieving paralog genes from ENSEMBL, filtering, annotation, and running all analysis.
 
 
 ### Requirements:
@@ -48,7 +48,7 @@ The analysis is mainly implemented in R by using several additional packages and
 
 ## Retrieving public data
 
-Downloading of all external data is documented in the file `data/download.sh`. It is a bash script which can be executed in the `data` folder to download all required external data.
+Downloading of all external data is documented in the file [`data/download.sh`](data/download.sh). It is a bash script which can be executed in the `data` folder to download all required external data.
 
 The script can be executed as follows:
 ```bash
@@ -58,7 +58,7 @@ cd data
 
 ## Downloading of ENSEMBL data
 
-The next step after retiving external annnotation data is to download paralog paris from ENSEMBL database from within R using the `biomaRt` package. This is implemented in the R script [`R/data.ensembl.R`](R/data.ensembl.R)
+The next step after retiring external annotation data is to download paralog gene pairs from ENSEMBL database from within R using the `biomaRt` package. This is implemented in the R script [`R/data.ensembl.R`](R/data.ensembl.R)
 
 
 Similar the parsing of expression and Capture Hi-C data is implemented in the scripts [`R/data.expression.R`](R/data.expression.R) and [`R/data.captureHiC.R`](R/data.captureHiC.R), respectively. 
@@ -74,7 +74,7 @@ From the project root folder start an R session and run
 source("R/paralog_regulation.sampling_annotation.R")
 ```
 
-This will downlaod and parse data, filter gene pairs, sample random background control gene pairs, and annotate pairs. 
+This will download and parse data, filter gene pairs, sample random background control gene pairs, and annotate all pairs. 
 
 
 
@@ -93,6 +93,6 @@ This will create a folder `results` with several plots in PDF format.
 
 ## Parameters and temporary files
 
-The script script [`R/paralog_regulation.param.v16.R`](R/paralog_regulation.param.v16.R) defines several parameters like file paths, colors, distance thresholds, and number sampling replications, which can be modified if needed.
+The script [`R/paralog_regulation.param.v16.R`](R/paralog_regulation.param.v16.R) defines several parameters like file paths, colors, distance thresholds, and number sampling replications, which can be modified if needed.
 
 
