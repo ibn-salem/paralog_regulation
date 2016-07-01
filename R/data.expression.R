@@ -20,8 +20,6 @@ EXPRESSION_FILE_LIST = list(
     "FANTOM5_tissues"="data/ExpressionAtlas/E-MTAB-3358.tsv",
     "Illumina_Body_Map"="data/ExpressionAtlas/E-MTAB-513.tsv")
 
-#~     "Uhlen_Lab_tissues"="data/ExpressionAtlas/E-MTAB-2836.tsv",
-
 outPrefixDataExpression=paste0("results/data/expression.ebi_expression_atlas.", VERSION_DATA_EXPRESSION)
 
 # make directory if not exist already

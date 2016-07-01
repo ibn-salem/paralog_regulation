@@ -1,131 +1,16 @@
 ########################################################################
 #
-# A script to analyse the co-regulation by distal enhancers of paralog 
-# genes and functional related genes.
-# It looks for association (compared to randomized paralog assignment) 
-# for a paralog pair (if paralog group is larger, remove randomly genes) to
-# - co-localization on linear genome (distance between them)
-# - common enhancers associations in correlation based maps
-# - co-occurances in same interaction domains
-# - more contact to each other in Hi-C map or more contacts to common enhancers.
+# A script to analyse the co-regulation of paralog genes 
+#
 ########################################################################
 
-#--------------------------#
-# TODOs and known issues:  #
-#--------------------------#
-# DONE:
-# X list of paralog pairs contains duplicates (each direction)
-# X Some paralog pairs might not be contained in both direction!!!
-# X randomization with all genes
-# X annotate the GR objects of pairs (is in same domain TREU/FALSE)
-# X faster mapping of genes to enhancer IDs (write custom function)
-# - randomized ehancer-promoter map
-# X random gene pairs with same distance distribution as paralogs
-# X take only one unique pair per gene
-# x exclude real paralog pairs in randomly sampled control set
-# X select unique pair per gene by maximal sequence similarity
-# x in sampling process, consider density smooth parameters (might be the reason for slightly to less very close (nearly zero) distance sampled pairs)
-#   Try to take wight not from absolut, but relativ distances
-# After discussion with Miguel (16.04.15):
-# x Find a metric to get exclusive expression (threshold on low exp genes, than correlation?)
-# X Use maximal information coefficient (MIC) 
-# X Search for TF binding motifs in promoter and enhancer of paralogs 
-# X check for co-expression of all genes in same TAD (not paralogs)
-# X used observed/expected matrix provided by vectors from Rao et al. 2014
-# X Use list of all TADs from Rao14 and Dixon12
-# X redesin analysis: 
-# X     - make general function for gene-pairs (instead of paralogs)
-# X     - Do all annotation on all possible gene pairs before sampling
-# => RECHECK: MIC score with toy example and dot plot (R and MIC should correlate)
-# - preselect non-coexistence gene pairs and cluster tissues with them
-# X To check which distal pair cut-off makes most sense bin pairs by size and make boxplots using ggplot2
-# RECHECK: The maximum matching code might overwrite non-symetric similarities in case of A-B B-A pairs
-# X check for same strand correlation with distance
-# X Use capture Hi-C data (from latest Peter Fraser paper) to quantify contacts between paralogs
-#       - recheck parsing and sparse matrix object (manually check function parseCaptureHiC in parseHiC.R)
-# # take duplication age (dS) into account
-# # for faster pipeline Run: outsource parsing of (and scanning) of TF motifs
-# - Recheck sampling of gene pairs by distance.
-#       - try to sample separatly for dist and enhancer
-#       - plot distal pair distance with sampled pairs with log-log qqplot
-#       - Maybe Sample according to distance of allCisPairs and divide close and distal afterwards
-
-# FEDBACK from RECOMB-CG 2015
-# - take duplication age into account, separate young and old pairs
-# - Are there paralogs with different functions? (non-coexistence expression?)
-# - For TAD vs. rearrangement correlation take length of intergenes into account.
-# - Direct correlation with syntenic blocks (use Magsimus or similar tools)
-
-
-# DISCUSSION: (after discussion with Miguel on 16.06.15
-# X leave out expression data for the first publication
-# X Question of interest: Paralogs fitting to TAD structure of genome?
-# x RECHECK carefully mouse and dog Hi-C data (and comparision to sampled genes)
-# x change scale of distance box plot of orthologs
-# x Synteny breaks of between mouse and human around TAD boundaries.
-# X Use >= 1MB as distal pair cut-off
-# X linear distance correlation for orthologs of sampled genes (should be less correlation?)
-# X Put numbers to Hi-C boxplot in ortholog analysis
-
-# FURTHER INTERESTING STUFF:
-# X GTEx Consortium RNA-seq data for expression analysis
-# - use other functional gene pairs (KEGG, GO (level?), PPI)
-# X Colocalization of paralog pairs in other organisms (% species with shared chrom)
-# - Use mouse Hi-C data from the Rao et al. 2014 paper
-
-# EXAMPLE:
-# - Check HoxA and HoxD locus in detail, as well as, IGf2/H19 locus (Kurukut et al. PNAS 2006)
-# X Use the PRC1 complex as example: 
-# X     - check for CBX2,4,8 on chr17 and CBX6,7 on chr22
-# X     - PHC1,2,3 are on diff. chrom
-# chr17: CBX1,2,8,4
-
-# ADDITIONAL ANALYSIS:
-# - repeat all analysis with all pairs, only two pairs
-# X CHECK: ratio of synonymous mutations used for pair choosing?
-# - check robustness to 1MB distance cutoff
-# - build sampled background separately for enhancer, and TAD/Hi-C 
-# - Check stable TADs, check definition. Why not significant?
-# X Significance test on expression correlation
-# - check linear distance conservation with correlation p-value
-# - Compute fraction of one-to-one orthologs within the same TAD from 
-#   only those human paralogs that are in the same TAD
-# - include size of mouse and dog TADs in the size boxplot of all TADs
-# - for expression analysis replace boxplot with density plot (similar to Fortin2015)
-# - Enhancer positioning pattern around pairs of paralogs (and within TADs)
-# X Evolutionary breakpoint of TADs
-# - check source of slight enrichment of negative expression correlation (use random pairs from different chromosomes)
-# - expression correlation of distal pairs
-
-# ISSUES TO BE FIXED BEFORE FINAL NUMBERS:
-# - TAD bed file and ranges +/- 1 error (Rao org data use 0-based including coords)
-# - make all gene pair data frames as.character()
-# - check mapping of enhancers to genes with tssGR object and id remapping
-#   DONE: 65953 of 66942 genes could be mapped uniquelly to ENSG IDs.
-
-# TO FINALIZE PIPELINE FOR SUBMISSION:
-# X redesign code to run on MOGON server
-# X use orghologMouse instead of orthologAll data set
-# X use seed() command for reproducible randomizations
-# - remove the following parts from the analysis (if not included in manuscript):
-#   X TF motif analysis
-#   X conserved TADs over all cell types
-#   x MIC score of expression correlation
-# - put sameTAD annotations in the closePairs not in the GR and combine replicated sampled pairs early
-
-require(biomaRt)        # to retrieve human paralogs from Ensembl
 require(stringr)        # for some string functionality
 require(RColorBrewer)   # for nice colors
 require(colorspace)     # for some more colors
 require(GenomicRanges)  # for genomic intervals and overlap calculation
-require(rtracklayer)    # for import.bed
 require(plyr)           # count() function
-require(data.table)     # for data.table object
-require(gridExtra)      # for dotplot with denisty at axis
-require(gplots)         # heatmap.2 function
 require(ggplot2)        # for nice plots
 require(scales)         # for proper logarithmic scales in ggplot
-require(BiocParallel)   # for parallel computing
 
 #-----------------------------------------------------------------------
 # Load parameters from external script
@@ -161,27 +46,20 @@ captureC_rawNoZero="Capture Hi-C contacts",
 captureC_ObsExpNoZero="Normalized Capture Hi-C [obs/exp]"
 )
 
-
-subTADlabels <- paste0("\n\n\n\n", levels(subDF$subTAD))
-names(subTADlabels) <- levels(subDF$subTAD)
+subTADlevels <- c("no TAD", "diff TAD", "diff sub TAD", "same sub TAD")
+subTADlabels <- paste0("\n\n\n\n", subTADlevels)
+names(subTADlabels) <- subTADlevels
 
 #-----------------------------------------------------------------------
 # load some custom functions
 #-----------------------------------------------------------------------
 source("R/functions.plot.R")
-source("R/functions.regMap.R")
 source("R/functions.GRanges.R")
 source("R/functions.genePairs.R")
 source("R/functions.genePairs.randomization.R")
 source("R/functions.genePairs.paralog_analysis.R")
-source("R/functions.Hi-C.R")
 source("R/parseHiC.R")
-#~ 
-#~ # load ensemble data sets of genes and paralog pairs
-#~ source("R/data.ensembl.R")     # load ensambl data
-#~ source("R/data.expression.R")  # load expression data from EBI expression atlas
-#~ source("R/data.captureHiC.R")  # load capture Hi-C data between promoters from Mifsud et al. 2015
-#~ source("R/data.gene_age.R")  # load duplication age for paralogs as computed by Pablo Mier Munoz
+
 
 #=======================================================================
 # 1.) Load data from exported data.frames
@@ -200,21 +78,14 @@ sTAD <- allDF$tadSource == "Rao_IMR90"
 sExp <- allDF$expSource == "GTEx"
 sSpec <- allDF$species == "mouse"
 
-
-
 #=======================================================================
 # 2.) Enhancer sharing for different sampling approaches
 #=======================================================================
 
-#~ sampNames <- c("sampDistPairs", "sampDistEhPairs", "sampDistEhStrandPairs", "sampDistEhLenPairs")
-
-
-#select subset based on samplingType
-#~ for (sampName in names(ehDFlist)){
-
 for (sampName in levels(allDF$sampType)){
     
-    sampNameStr <- gsub("\n| ", "_", sampName)
+    #select subset based on samplingType
+	sampNameStr <- gsub("\n| ", "_", sampName)
     
     subSet <- sTAD & sExp &sSpec & allDF$sampType %in% c("paralogs", sampName)
     ehDF <- allDF[subSet,]
@@ -372,13 +243,11 @@ p <- ggplot(freqDF, aes(x=sampType, y=avgPercent, fill=sampType)) +
 ggsave(paste0(outPrefix, ".10_1000kb.ehPercent.by_sampType_and_group.barplot.pdf"))
 
 
-
 #-------------------------------------------------------------------
 # Shared Enhancer vs. samp Groups for close paralogs
 #-------------------------------------------------------------------
 
 subDF <- subset(allDF, sTAD & sExp & sSpec & distGroup=="close")
-
 
 dc <- ddply(subDF, .(sampType, replicate), summarize, n=length(eh), count=sum(eh), percent=sum(eh)/length(eh)*100)
 freqDF <- ddply(dc, .(sampType), summarize, 
@@ -392,7 +261,6 @@ freqDF <- ddply(dc, .(sampType), summarize,
 
 # calculate p-values
 pvals <- sapply(levels(subDF$sampType)[-1], function(st) fisher.test(subDF[subDF$sampType %in% c("paralogs", st),"eh"], subDF[subDF$sampType %in% c("paralogs", st), "sampType"])$p.value )
-
 
 pvalDF <- data.frame(
     p = pvals,
@@ -585,72 +453,6 @@ for (HiCcol in HiCcolumns){
         geom_text(aes(label=paste0("p=", signif(p,2)), x=1.5, y=250), data=pvalDF, size=5)   
     ggsave(p, file=paste0(outPrefix, ".", HiCcol, ".by_inTADclose.boxplot.pdf"), w=7, h=7)
 
-#~ 
-#~     #-----------------------------------------------------------------------
-#~     # separated by Protein Evidence from UniProt
-#~     #-----------------------------------------------------------------------
-#~     # Show only levels
-#~     subDF$UniProtEvidenceLevel <- substr( subDF$UniProtEvidence, 1,1)
-#~     nDF <- ddply(subDF, .(inTADclose, UniProtEvidenceLevel, group), summarize, n=sum(!is.na(get(HiCcol))))
-#~     
-#~     # calculate p-values
-#~     pvalDF <- ddply(subDF, .(inTADclose, UniProtEvidenceLevel), summarize, p=ifelse(min(table(!is.na(get(HiCcol)), group))>1, wilcox.test(as.formula(paste(HiCcol, "~ group")))$p.value, NA))
-#~ 
-#~     p = ggplot(subDF, aes_string(x="group", y=HiCcol)) + 
-#~         geom_boxplot(aes(colour = group), lwd=1.5) + scale_y_log10() +
-#~         facet_grid(.~inTADclose*UniProtEvidenceLevel) + 
-#~         scale_color_manual(values=COL, guide_legend(title = "")) +
-#~         theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position="none") + 
-#~         guides(fill=guide_legend(title="")) +
-#~         labs(x="",y=HiClab) + 
-#~         geom_text(aes(label=paste0("n=",n),  y=0.25), data=nDF, angle=90) +
-#~         geom_text(aes(label=paste0("p=", signif(p,2)), x=1.5, y=250), data=pvalDF, size=5)   
-#~     ggsave(p, file=paste0(outPrefix, ".", HiCcol, ".by_inTADclose_and_UniProtEvidence.boxplot.pdf"), w=21, h=7)
-#~ 
-#~     #-----------------------------------------------------------------------
-#~     # separated by Protein Evidence from UniProt and sameStrand
-#~     #-----------------------------------------------------------------------
-#~     # Show only levels
-#~     subDF$UniProtEvidenceLevel <- substr( subDF$UniProtEvidence, 1,1)
-#~     nDF <- ddply(subDF, .(inTADclose, UniProtEvidenceLevel, sameStrand, group), summarize, n=sum(!is.na(get(HiCcol))))
-#~     
-#~     # calculate p-values
-#~     pvalDF <- ddply(subDF, .(inTADclose, UniProtEvidenceLevel, sameStrand), summarize, p=ifelse(min(table(!is.na(get(HiCcol)), group))>1, wilcox.test(as.formula(paste(HiCcol, "~ group")))$p.value, NA))
-#~ 
-#~     p = ggplot(subDF, aes_string(x="group", y=HiCcol)) + 
-#~         geom_boxplot(aes(colour = group), lwd=1.5) + scale_y_log10() +
-#~         facet_grid(UniProtEvidenceLevel~inTADclose*sameStrand) + 
-#~         scale_color_manual(values=COL, guide_legend(title = "")) +
-#~         theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position="none") + 
-#~         guides(fill=guide_legend(title="")) +
-#~         labs(x="", y=HiClab) + 
-#~         geom_text(aes(label=paste0("n=",n),  y=0.25), data=nDF, angle=90) +
-#~         geom_text(aes(label=paste0("p=", signif(p,2)), x=1.5, y=250), data=pvalDF, size=5)   
-#~     ggsave(p, file=paste0(outPrefix, ".", HiCcol, ".by_inTADclose_and_UniProtEvidence_and_Strand.boxplot.pdf"), w=14, h=14)
-#~ 
-#~     #-----------------------------------------------------------------------
-#~     # separated by Protein Evidence from UniProt inTADclose and sameStrand
-#~     #-----------------------------------------------------------------------
-#~     # Show only levels
-#~     subDF$UniProtEvidenceLevel <- substr( subDF$UniProtEvidence, 1,1)
-#~     subDF[is.na(subDF[,HiCcol]), "dist"] <- NA
-#~     
-#~     nDF <- ddply(subDF, .(inTADclose, UniProtEvidenceLevel, sameStrand, group), summarize, n=sum(!is.na(dist)))
-#~     
-#~     # calculate p-values
-#~     pvalDF <- ddply(subDF, .(inTADclose, UniProtEvidenceLevel, sameStrand), summarize, p=ifelse(min(table(!is.na(dist), group))>1, wilcox.test(as.formula(paste("dist", "~ group")))$p.value, NA))
-#~ 
-#~     p = ggplot(subDF, aes_string(x="group", y="dist")) + 
-#~         geom_boxplot(aes(colour = group), lwd=1.5) + scale_y_log10() +
-#~         facet_grid(UniProtEvidenceLevel~inTADclose*sameStrand) + 
-#~         scale_color_manual(values=COL, guide_legend(title = "")) +
-#~         theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position="none") + 
-#~         guides(fill=guide_legend(title="")) +
-#~         labs(x="", y=HiClab) + 
-#~         geom_text(aes(label=paste0("n=",n),  y=0.25), data=nDF, angle=90) +
-#~         geom_text(aes(label=paste0("p=", signif(p,2)), x=1.5, y=250), data=pvalDF, size=5)   
-#~     ggsave(p, file=paste0(outPrefix, ".", "dist", ".by_inTADclose_and_UniProtEvidence_and_Strand.boxplot.pdf"), w=14, h=14)
-
 }
 
 #-----------------------------------------------------------------------
@@ -672,8 +474,7 @@ pvalDF <- data.frame(
     p = pvals,
     ypos = ddply(freqDF, .(subTAD), summarize, y=max(avgCount))$y + 50,
     group=NA,
-    dupAgeGroup=NA,
-    age=NA
+    dupAgeGroup=NA
 )
 
 p <- ggplot(freqDF, aes(x=group, y=avgCount, fill=group)) +
@@ -701,8 +502,6 @@ p <- ggplot(freqDF, aes(x=group, y=avgPercent, fill=group)) +
     theme_bw() + theme(text = element_text(size=20), axis.text.x=element_blank(), legend.position="bottom") + labs(y="Gene pairs [%]", x="") +
     geom_text(aes(label=signif(avgPercent,3)), position=position_dodge(width=1), vjust=1.25, size=5) +
     geom_text(aes(label=paste0("p=",signif(p,2)), y=1.1*max(freqDF$avgPercent), x=1.5), size=5, data=pvalDF)
-
-#~  theme(strip.text.x = element_text(size=4, angle=90)) +
 
 g <- addPictureLabels(p, subTADfigPaths)
 pdf(paste0(outPrefix, ".10_1000kb.percent_gene_pairs.subTAD.byGroup.barplot.pdf"))
@@ -735,36 +534,6 @@ p <- ggplot(freqAgeGroupDF, aes(x=group, y=avgCount, fill=dupAgeGroup)) +
 g <- addPictureLabels(p, subTADfigPaths)
 
 pdf(paste0(outPrefix, ".10_1000kb.subTAD.by_dupAgeGroup_and_group.barplot.pdf"))
-    grid.draw(g)
-dev.off()
-
-#-----------------------------------------------------------------------
-# number of gene pairs by age, group and subTAD combination
-#-----------------------------------------------------------------------
-
-# make dupAge for sampled pairs as NA
-subDF[subDF$group == "sampled", "age"] <- NA
-
-dcAge <- ddply(subDF, .(group, age, replicate), function(d) {data.frame(
-    table(d$subTAD)
-    )})
-names(dcAge)[c(4,5)] <- c("subTAD", "count")
-freqAgeDF <- ddply(dcAge, .(group, age, subTAD), summarize, avgCount=mean(count, na.rm=TRUE), sdCount=sd(count, na.rm=TRUE))
-# convert to factor that do not exclude NAs for plotting
-freqAgeDF$age <- factor(freqAgeDF$age, exclude = NULL)
-
-p <- ggplot(freqAgeDF, aes(x=group, y=avgCount, fill=age)) +
-    geom_bar(stat="identity", colour="black") + 
-    geom_errorbar(aes(ymax = avgCount + sdCount , ymin=avgCount - sdCount), width=.25) +
-    facet_grid(.~subTAD, labeller=as_labeller(subTADlabels)) +
-    scale_fill_manual(values=COL_AGE_LEVELS, guide_legend(title = "Age")) +
-    theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1)) + labs(y="Gene pairs", x="") +
-    #geom_text(aes(label=avgCount, y= avgCount), vjust=1.25, size=5) +
-    geom_text(aes(label=paste0("p=",signif(p,2)), y=ypos, x=1.5), size=5, data=pvalDF)
-
-g <- addPictureLabels(p, subTADfigPaths)
-
-pdf(paste0(outPrefix, ".10_1000kb.subTAD.by_age_and_group.barplot.pdf"))
     grid.draw(g)
 dev.off()
 
@@ -824,7 +593,6 @@ g <- addPictureLabels(p, subTADfigPaths)
 pdf(paste0(outPrefix, ".10_1000kb.ehPercent.by_subTAD_and_group.barplot.pdf"))
     grid.draw(g)
 dev.off()
-
 
 #-----------------------------------------------------------------------
 # subTAD by group
@@ -901,8 +669,7 @@ pvalDF <- data.frame(
     p = pvals,
     ypos = ddply(freqDF, .(sub3TAD), summarize, y=max(avgCount))$y + 50,
     group=NA,
-    dupAgeGroup=NA,
-    age=NA
+    dupAgeGroup=NA
 )
 
 
@@ -948,36 +715,6 @@ p <- ggplot(freqAgeGroupDF, aes(x=group, y=avgCount, fill=dupAgeGroup)) +
 g <- addPictureLabels(p, sub3TADfigPaths)
 
 pdf(paste0(outPrefix, ".10_1000kb.sub3TAD.by_dupAgeGroup_and_group.barplot.pdf"))
-    grid.draw(g)
-dev.off()
-
-#-----------------------------------------------------------------------
-# number of gene pairs by age, group and sub3TAD combination
-#-----------------------------------------------------------------------
-
-# make dupAge for sampled pairs as NA
-subDF[subDF$group == "sampled", "age"] <- NA
-
-dcAge <- ddply(subDF, .(group, age, replicate), function(d) {data.frame(
-    table(d$sub3TAD)
-    )})
-names(dcAge)[c(4,5)] <- c("sub3TAD", "count")
-freqAgeDF <- ddply(dcAge, .(group, age, sub3TAD), summarize, avgCount=mean(count, na.rm=TRUE), sdCount=sd(count, na.rm=TRUE))
-# convert to factor that do not exclude NAs for plotting
-freqAgeDF$age <- factor(freqAgeDF$age, exclude = NULL)
-
-p <- ggplot(freqAgeDF, aes(x=group, y=avgCount, fill=age)) +
-    geom_bar(stat="identity", colour="black") + 
-    geom_errorbar(aes(ymax = avgCount + sdCount , ymin=avgCount - sdCount), width=.25) +
-    facet_grid(.~sub3TAD) +
-    scale_fill_manual(values=COL_AGE_LEVELS, guide_legend(title = "Age")) +
-    theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1)) + labs(y="Gene pairs", x="") + theme(strip.text.x = element_text(size=4, angle=90)) +
-#~     geom_text(aes(label=avgCount, y= avgCount), vjust=1.25, size=5) +
-    geom_text(aes(label=paste0("p=",signif(p,2)), y=ypos, x=1.5), size=5, data=pvalDF)
-
-g <- addPictureLabels(p, sub3TADfigPaths)
-
-pdf(paste0(outPrefix, ".10_1000kb.sub3TAD.by_age_and_group.barplot.pdf"))
     grid.draw(g)
 dev.off()
 
@@ -1087,7 +824,6 @@ for (HiCcol in c("HiC", "captureC_raw", "HiCNoZero", "captureC_rawNoZero")){
     ggsave(p, file=paste0(outPrefix, ".10_1000kb.", HiCcol, ".by_sub3TAD.boxplot.pdf"), w=7, h=7)
 }
 
-
 #-----------------------------------------------------------------------
 # Density of average expression of pairs in IMR90
 #-----------------------------------------------------------------------
@@ -1164,40 +900,6 @@ p = ggplot(subDF, aes(x=group, y=expCor^2)) +
     labs(y="Expression Correlation [R^2]", x="") + 
     geom_text(aes(label=paste0("n=",Freq),  y=1.05), data=nDF)    
 ggsave(p, file=paste0(outPrefix, ".10_1000kb.expCor.by_subTAD.boxplot.pdf"), w=7, h=7)
-#~ 
-#~ #-----------------------------------------------------------------------
-#~ # HiC by subTAD and group in 10-1000kb
-#~ #-----------------------------------------------------------------------
-#~ subDF <- allDF[sSamp & sTAD & sExp & sSpec & allDF$distTadBin == "10-1000kb",]
-#~ 
-#~ nDF <- data.frame(table(subDF[, c("group", "subTAD")], useNA="ifany"))
-#~ p = ggplot(subDF, aes(x=group, y=HiC)) + 
-#~     geom_boxplot(aes(colour = group), lwd=1.5) + scale_y_log10() +
-#~     facet_grid(.~subTAD) + 
-#~     scale_color_manual(values=COL, guide_legend(title = "")) +
-#~     theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position="none") + 
-#~     guides(fill=guide_legend(title="")) +
-#~     labs(x="") + 
-#~     geom_text(aes(label=paste0("n=",Freq),  y=110), data=nDF)    
-#~ ggsave(p, file=paste0(outPrefix, ".10_1000kb.HiC.by_subTAD.boxplot.pdf"), w=7, h=7)
-#~ 
-#~ 
-#~ #-----------------------------------------------------------------------
-#~ # captureC_raw by subTAD 
-#~ #-----------------------------------------------------------------------
-#~ subDF <- allDF[sSamp & sTAD & sExp & sSpec & allDF$distTadBin == "10-1000kb",]
-#~ 
-#~ nDF <- data.frame(table(subDF[, c("group", "subTAD")], useNA="ifany"))
-#~ p = ggplot(subDF, aes(x=group, y=captureC_raw)) + 
-#~     geom_boxplot(aes(colour = group), lwd=1.5) + scale_y_log10() +
-#~     facet_grid(.~subTAD) + 
-#~     scale_color_manual(values=COL, guide_legend(title = "")) +
-#~     theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position="none") + 
-#~     guides(fill=guide_legend(title="")) +
-#~     labs(x="") + 
-#~     geom_text(aes(label=paste0("n=",Freq),  y=1000), data=nDF)    
-#~ ggsave(p, file=paste0(outPrefix, ".10_1000kb.captureC_raw.by_subTAD.boxplot.pdf"), w=7, h=7)
-#~     
 
 #=======================================================================
 # Protein protein interaction from HIPPIE
@@ -1358,7 +1060,6 @@ pvalDF <- ddply(subDF, .(group), summarize,
     inTAD=NA
 )
 
-
 # anyPPI by TAD and group close only non NA
 p <- ggplot(freqDF, aes(x=inTAD, y=avgCount, fill=group)) +
     geom_errorbar(aes(ymax = avgCount + sdCount , ymin=avgCount - sdCount), position=position_dodge(width=0.9), width=.25) +
@@ -1381,7 +1082,6 @@ p <- ggplot(freqDF, aes(x=inTAD, y=avgPercent, fill=group)) +
     scale_fill_manual(values=COL, guide_legend(title = "")) +
     theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position="none") + labs(y="Gene pairs with PPI [%]", x="")
 ggsave(p, file=paste0(outPrefix, ".close.anyPPI_noNA_percent.by_group_and_inTAD.barplot.pdf"), w=3.5, h=7)
-
 
 #-----------------------------------------------------------------------
 # PPI by subTAD and group [10kb - 1000kb]
@@ -1411,7 +1111,6 @@ p <- ggplot(freqDF[freqDF$PPI == "PPI" & !is.na(freqDF$PPI),], aes(x=PPI, y=avgP
     scale_fill_manual(values=COL, guide_legend(title = "")) +
     theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position="bottom") + labs(y="Gene pairs with PPI [%]", x="")
 ggsave(p, file=paste0(outPrefix, ".10_1000kb.PPI_noNA.by_subTAD_and_group.barplot.pdf"), w=7, h=7)
-
 
 #-----------------------------------------------------------------------
 # PPI by subTAD and distTadBin
@@ -1910,127 +1609,6 @@ p <- ggplot(subDF, aes(x=inTAD, fill=group, y=captureC_ObsExp)) +
         facet_grid(.~tadSource) + theme(axis.text.x=element_text(angle = 45, hjust = 1), legend.position = "bottom") + theme(text = element_text(size=15)) + scale_fill_manual(values=COL) 
 ggsave(paste0(outPrefix,".close.captureC_ObsExp.byTAD_and_tadSource.boxplot.pdf"), w=14,h=7)
 
-#=======================================================================
-# Age of paralog duplication
-#=======================================================================
-
-#-----------------------------------------------------------------------
-# Age by TAD and tadSource
-#-----------------------------------------------------------------------
-subDF <- subset(allDF, group=="paralog" & distGroup=="close" & sSamp & sExp & sSpec)
-subDF <- subDF[subDF$age %in% 0:10,]
-
-
-p.vals <- sapply(levels(subDF$tadSource), function(s) wilcox.test(age ~ inTAD, data=subDF[subDF$tadSource==s,])$p.value)
-p.val.df <- data.frame(tadSource=levels(subDF$tadSource), pval=p.vals, age=.9*max(subDF$age, na.rm=TRUE), inTAD=TRUE)
-
-p <- ggplot(subDF, aes(x=tadSource, y=age)) +
-    geom_boxplot(aes(fill=inTAD)) + theme_bw() + theme(legend.position = "bottom") + 
-    theme(text = element_text(size=15)) + scale_fill_manual(values=rev(COL_TAD)) + geom_text(aes(label=paste0("p=", signif(pval, 3))), data=p.val.df) + ylab("Duplication age")
-ggsave(paste0(outPrefix,".close.age_by_inTAD_and_tadSource.boxplot.pdf"), w=14,h=7)
-
-#-----------------------------------------------------------------------
-# Percent in TAD by age as barplot
-#-----------------------------------------------------------------------
-subDF <- subset(allDF, group=="paralog" & distGroup=="close" & sSamp & sExp & sSpec)
-subDF <- subDF[subDF$age %in% 0:10,]
-
-d <- ddply(subDF, .(tadSource, age), summarize, percentInTAD=percentTrue(inTAD == "same TAD"), n=length(inTAD))
-
-# only for 'stable_TADs'
-p <- ggplot(d[d$tadSource=="stable_TADs",], aes(x=factor(age), y=percentInTAD, fill=factor(age))) +
-        geom_bar(stat="identity") + theme_bw() + theme(text = element_text(size=15)) + scale_fill_manual(values=terrain_hcl(12)) + 
-        geom_text(aes(label=paste0(c("n=", rep("", 10)), n), y=-2)) +
-        geom_text(aes(label=paste0(signif(percentInTAD, 2), "%")), , vjust=-0.25) + ylab("% in same TAD")
-ggsave(paste0(outPrefix,".close.inTAD_by_age.stable_TADs.barplot.pdf"), w=7,h=3.5)        
-
-p <- ggplot(d[d$tadSource=="Rao_IMR90",], aes(x=factor(age), y=percentInTAD, fill=factor(age))) +
-    geom_bar(stat="identity") + theme_bw() + theme(text = element_text(size=15)) + scale_fill_manual(values=terrain_hcl(12)) + 
-    geom_text(aes(label=paste0(c("n=", rep("", 10)), n), y=-2)) +
-    geom_text(aes(label=paste0(signif(percentInTAD, 2), "%")), , vjust=-0.25) + ylab("% in same TAD")
-ggsave(paste0(outPrefix,".close.inTAD_by_age.Rao_IMR90.barplot.pdf"), w=7,h=3.5)
-
-
-d <- ddply(subDF, .(tadSource, age), summarize, percentInTAD=percentTrue(inTAD == "same TAD"), n=length(inTAD))
-
-p <- ggplot(d, aes(x=factor(age), y=percentInTAD)) +
-    geom_bar(aes(fill=factor(age)), stat="identity", color="black") + facet_grid(tadSource~.) + theme_bw() + theme(legend.position = "none") + theme(text = element_text(size=15)) + scale_fill_manual(values=terrain_hcl(12)) + ylab("% in same TAD") +
-    geom_text(aes(label=paste0(signif(percentInTAD, 2), "%")), vjust=-0.25) + ylim(0,115) +
-    geom_text(aes(label=paste0("n=", n), y=5))
-    
-ggsave(paste0(outPrefix,".close.inTAD_by_age_and_tadSource.barplot.pdf"), w=7,h=14)
-
-#-----------------------------------------------------------------------
-# dist by age
-#-----------------------------------------------------------------------
-subDF <- subset(allDF, sSamp & sTAD & sExp & sSpec & group=="paralog" & distGroup=="close")
-subDF <- subDF[subDF$age %in% 0:10,]
-
-nDF <- data.frame(age=levels(factor(subDF$age)), y=-50, lab=paste0(c("n=", rep("", 10)), d$n[1:11]))
-p <- ggplot(subDF, aes(x=factor(age), y=abs(dist), fill=factor(age))) +
-    geom_boxplot() + theme_bw() + theme(text = element_text(size=15)) + scale_fill_manual(values=terrain_hcl(12)) + xlab("Duplication Age") + ylab("Genomic Distance [kb]") +
-    geom_text(data=nDF, aes(label=lab, x=age, y=y))
-ggsave(paste0(outPrefix,".close.dist_by_age.boxplot.pdf"), w=7,h=3.5)
-
-#-----------------------------------------------------------------------
-# exp cor by age for only GTEx
-#-----------------------------------------------------------------------
-subExpDF <- subset(allDF, sSamp & sTAD & sExp & sSpec & group=="paralog" & distGroup=="close")
-subExpDF <- subExpDF[subExpDF$age %in% 0:10,]
-
-nDF <- data.frame(age=levels(factor(subDF$age)), y=-50, lab=paste0(c("n=", rep("", 10)), d$n[1:11]))
-p <- ggplot(subExpDF, aes(x=factor(age), y=expCor^2, fill=factor(age))) +
-    geom_boxplot() + theme_bw() + theme(text = element_text(size=15)) + scale_fill_manual(values=terrain_hcl(12)) + xlab("Duplication Age") + ylab("Expression Correlation [R^2]") +
-    geom_text(data=nDF, aes(label=lab, x=age, y=-.02))    
-ggsave(paste0(outPrefix,".close.expCor_by_age.GTEx.boxplot.pdf"), w=7,h=3.5)
-
-#-----------------------------------------------------------------------
-# exp cor by age and expSource
-#-----------------------------------------------------------------------
-subExpDF <- subset(allDF, sSamp & sTAD  & sSpec & group=="paralog" & distGroup=="close")
-subExpDF <- subExpDF[subExpDF$age %in% 0:10,]
-
-nDF <- data.frame(age=levels(factor(subDF$age)), y=-50, expSource=levels(subDF$expSource)[length(levels(subDF$expSource))], lab=paste0(c("n=", rep("", 10)), d$n[1:11]))
-
-p <- ggplot(subExpDF, aes(x=factor(age), y=expCor^2, fill=factor(age))) + facet_grid(expSource~.) +
-    geom_boxplot() + theme_bw() + theme(text = element_text(size=15)) + scale_fill_manual(values=terrain_hcl(12)) + xlab("Duplication Age") + ylab("Expression Correlation [R^2]") +
-    geom_text(data=nDF, aes(label=lab, x=age, y=-.05))    
-
-ggsave(paste0(outPrefix,".close.expCor_by_age_and_expSource.boxplot.pdf"), w=7,h=7)
-
-#-----------------------------------------------------------------------
-# eh shared by age
-#-----------------------------------------------------------------------
-subExpDF <- subset(allDF, sSampEh & sTAD & sExp & sSpec & group=="paralog" & distGroup=="close")
-subExpDF <- subExpDF[subExpDF$age %in% 0:10,]
-
-d <- ddply(subDF, .(age), summarize, sharedEh=percentTrue(eh), n=length(inTAD))
-
-p <- ggplot(d, aes(x=factor(age), y=sharedEh, fill=factor(age))) +
-    geom_bar(stat="identity", colour="black") + 
-    scale_fill_manual(values=terrain_hcl(12), guide=FALSE) +
-    theme_bw() + theme(text = element_text(size=20)) + labs(y="Gene pairs with\nshared enhancer [%]") + theme(strip.text.x = element_text(size=5, angle=90)) +
-    geom_text(aes(label=paste0(signif(sharedEh,3), "%"), y= sharedEh), vjust=-0.25, size=5) + ylim(0, 1.1*max(d$sharedEh))
-
-ggsave(paste0(outPrefix,".close.sharedEnhancer_by_age.barplot.pdf"), w=7,h=3.5)
-#~ 
-#~ #-----------------------------------------------------------------------
-#~ # ds by TAD
-#~ #-----------------------------------------------------------------------
-#~ subDF <- subset(allDF, sSampEh & sExp & sSpec & group=="paralog" & distGroup=="close")
-#~ 
-#~ p <- ggplot(subDF, aes(x=inTAD, y=hsapiens_paralog_ds, fill=inTAD)) +
-#~         geom_boxplot() + scale_y_log10() +
-#~         facet_grid(~tadSource) + theme_bw() + theme(legend.position = "bottom") + theme(text = element_text(size=15)) + scale_fill_manual(values=rev(COL_TAD))
-#~ ggsave(paste0(outPrefix,".close.ds_by_TAD.boxplot.pdf"), w=14,h=7)
-#~ 
-#~ #-----------------------------------------------------------------------
-#~ # dn by TAD
-#~ #-----------------------------------------------------------------------
-#~ p <- ggplot(subDF, aes(x=inTAD, y=hsapiens_paralog_dn, fill=inTAD)) +
-#~     geom_boxplot() + scale_y_log10() +
-#~     facet_grid(~tadSource) + theme_bw() + theme(legend.position = "bottom") + theme(text = element_text(size=15)) + scale_fill_manual(values=rev(COL_TAD))
-#~ ggsave(paste0(outPrefix,".allDF.close.dn_by_TAD.boxplot.pdf"), w=14,h=7)
 
 #-----------------------------------------------------------------------
 # common_ortholog by TAD
@@ -2146,9 +1724,6 @@ p <- ggplot(freqDF, aes(x=group, y=avgPercent, fill=group)) +
     
 ggsave(paste0(outPrefix,".close.percent_gene_pairs.sameStrand_by_group.barplot.pdf"), w=3.5, h=7)
 
-
-
-
 #=======================================================================
 # In TAD vs. not in TAD 
 #=======================================================================
@@ -2237,175 +1812,9 @@ for(subName in names(subDFList)){
 
 }
 
-
 #=======================================================================
 # Compartments and Sub-compartments
 #=======================================================================
-#-----------------------------------------------------------------------
-# same compartment
-#-----------------------------------------------------------------------
-subDF <- subset(allDF, sSamp & sTAD & sExp & sSpec)
-
-#-----------------------------------------------------------------------
-# Check how many pairs are in different compartment regions, i.e usable for analysis
-#-----------------------------------------------------------------------
-
-subDFdiffRegionFrac <- ddply(subDF, .(group), summarize, 
-    diffReg=percentTrue(!is.na(comp_combination) & !same_comp_region), 
-    diffRegSum=sum(!is.na(comp_combination) & !same_comp_region), 
-    diffSubReg=percentTrue(!is.na(common_subcomp) & !same_subcomp_region),
-    diffSubRegSum=sum(!is.na(common_subcomp) & !same_subcomp_region),
-    n=length(comp_combination)
-    )
-
-g <- ggplot(subDFdiffRegionFrac, aes(x=group, y=diffReg, fill=group)) +
-    geom_bar(stat="identity") + 
-    theme_bw() + theme(legend.position = "none", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual(values=COL) + ylab("Different compartment regions [%]") + xlab("") + 
-    geom_text(aes(label=paste0(signif(diffReg, 3),"\n(n=",diffRegSum, ")")), vjust=1.5)
-ggsave(paste0(outPrefix,".diff_comp_region.barplot.pdf"), g, w=3.5, h=7)
-
-g <- ggplot(subDFdiffRegionFrac, aes(x=group, y=diffSubReg, fill=group)) +
-    geom_bar(stat="identity") + 
-    theme_bw() + theme(legend.position = "none", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual(values=COL) + ylab("Different compartment regions [%]") + xlab("") + 
-    geom_text(aes(label=paste0(signif(diffSubReg, 3),"\n(n=",diffSubRegSum, ")")), vjust=1.5)
-ggsave(paste0(outPrefix,".diff_subcomp_region.barplot.pdf"), g, w=3.5, h=7)
-
-#-----------------------------------------------------------------------
-# separate by distGroup
-#-----------------------------------------------------------------------
-
-subDFdiffRegionDistFrac <- ddply(subDF, .(group, distGroup), summarize, diffReg=percentTrue(!is.na(comp_combination) & !same_comp_region), diffSubReg=percentTrue(!is.na(common_subcomp) & !same_subcomp_region))
-
-g <- ggplot(subDFdiffRegionDistFrac, aes(x=group, y=diffReg, fill=group)) +
-    geom_bar(stat="identity") + facet_grid(.~distGroup) + 
-    theme_bw() + theme(legend.position = "none", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual(values=COL) + ylab("Different compartment regions [%]") + xlab("") + 
-    geom_text(aes(label=signif(diffReg, 3)), vjust=1.5)
-ggsave(paste0(outPrefix,".diff_comp_region.by_dist.barplot.pdf"), g, w=3.5, h=7)
-
-
-g <- ggplot(subDFdiffRegionDistFrac, aes(x=group, y=diffSubReg, fill=group)) +
-    geom_bar(stat="identity") + facet_grid(.~distGroup) + 
-    theme_bw() + theme(legend.position = "none", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual(values=COL) + ylab("Different compartment regions [%]") + xlab("") + 
-    geom_text(aes(label=signif(diffSubReg, 3)), vjust=1.5)
-ggsave(paste0(outPrefix,".diff_subcomp_region.by_dist.barplot.pdf"), g, w=3.5, h=7)
-
-#-----------------------------------------------------------------------
-# Distribution of compartment combinations including NA's
-#-----------------------------------------------------------------------
-
-#mark all combinations as NA that have genes in the same compartment region
-subDF$comp_combination[subDF$same_comp_region] <- NA
-subDF$subcomp_combination[subDF$same_subcomp_region] <- NA
-
-# make factors for sorted plots:
-subDF$comp_combination <- factor(subDF$comp_combination, levels=c("A/A", "B/B", "A/B", "unknown"))
-
-dc <- ddply(subDF, .(group, comp_combination), summarize, count=table(as.character(comp_combination), useNA="ifany"))
-summedCounts <- rep(ddply(dc, .(group), summarize, s=sum(count))$s, each=length(unique(dc$comp_combination)))
-subDFcomb <- cbind(dc, cbind(summedCounts, percent=dc$count * 100 / summedCounts))
-
-# add percent position for labels:
-subDFcomb <- ddply(subDFcomb, .(group), 
-   transform, pos = cumsum(percent) - (0.5 * percent)
-)
-
-# mark pairs with unknown compartment in combination
-subDFcomb$comp_combination[is.na(subDFcomb$comp_combination)] <- "unknown"
-
-g <- ggplot(subDFcomb, aes(x=group, fill = comp_combination, y = percent)) +
- geom_bar(stat="identity") + theme_bw() + theme(legend.position = "bottom", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual("", values=COL_COMP) + ylab("Compartment combination [%]") + xlab("") +
- geom_text(aes(label = signif(percent,3), y = pos)) 
-ggsave(paste0(outPrefix,".compartment_combination.pdf"), g, w=3.5, h=7)
-
-#-----------------------------------------------------------------------
-# same but separated by dist group
-#-----------------------------------------------------------------------
-
-dc <- ddply(subDF, .(distGroup, group, comp_combination), summarize, count=table(as.character(comp_combination), useNA="ifany"))
-summedCounts <- rep(ddply(dc, .(distGroup, group), summarize, s=sum(count))$s, each=length(unique(dc$comp_combination)))
-subDFcomb <- cbind(dc, cbind(summedCounts, percent=dc$count * 100 / summedCounts))
-
-# add percent position for labels:
-subDFcomb <- ddply(subDFcomb, .(distGroup, group), 
-   transform, pos = cumsum(percent) - (0.5 * percent)
-)
-
-# mark pairs with unknown compartment in combination
-subDFcomb$comp_combination[is.na(subDFcomb$comp_combination)] <- "unknown"
-
-g <- ggplot(subDFcomb, aes(x=group, fill = comp_combination, y = percent)) +
- geom_bar(stat="identity") + facet_grid(.~distGroup) + theme_bw() + theme(legend.position = "bottom", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual("", values=COL_COMP) + ylab("Compartment combination [%]") + xlab("") +
- geom_text(aes(label = signif(percent,3), y = pos)) 
-ggsave(paste0(outPrefix,".compartment_combination.by_dist.pdf"), g, w=3.5, h=7)
-
-#-----------------------------------------------------------------------
-# without NAs
-#-----------------------------------------------------------------------
-dc <- ddply(subDF, .(group, comp_combination), summarize, count=table(as.character(comp_combination)))
-summedCounts <- rep(ddply(dc, .(group), summarize, s=sum(count))$s, each=length(unique(dc$comp_combination)))
-subDFcomb <- cbind(dc, cbind(summedCounts, percent=dc$count * 100 / summedCounts))
-
-# add percent position for labels:
-subDFcomb <- ddply(subDFcomb, .(group), transform, pos = cumsum(percent) - (0.5 * percent))
-
-g <- ggplot(subDFcomb, aes(x=group, fill = comp_combination, y = percent)) +
- geom_bar(stat="identity") + theme_bw() + theme(legend.position = "bottom", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual("", values=COL_COMP) + ylab("Compartment combination [%]") + xlab("") +
- geom_text(aes(label = signif(percent,3), y = pos)) 
-ggsave(paste0(outPrefix,".compartment_combination.withoutNA.pdf"), g, w=3.5, h=7)
-
-#-----------------------------------------------------------------------
-# same but separated by dist group
-#-----------------------------------------------------------------------
-
-dc <- ddply(subDF, .(distGroup, group, comp_combination), summarize, count=table(as.character(comp_combination)))
-summedCounts <- rep(ddply(dc, .(distGroup, group), summarize, s=sum(count))$s, each=length(unique(dc$comp_combination)))
-subDFcomb <- cbind(dc, cbind(summedCounts, percent=dc$count * 100 / summedCounts))
-
-# add percent position for labels:
-subDFcomb <- ddply(subDFcomb, .(distGroup, group), transform, pos = cumsum(percent) - (0.5 * percent))
-
-g <- ggplot(subDFcomb, aes(x=group, fill = comp_combination, y = percent)) +
- geom_bar(stat="identity") + facet_grid(.~distGroup) + theme_bw() + theme(legend.position = "bottom", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual("", values=COL_COMP) + ylab("Compartment combination [%]") + xlab("") +
- geom_text(aes(label = signif(percent,3), y = pos)) 
-ggsave(paste0(outPrefix,".compartment_combination.withoutNA.by_dist.pdf"), g, w=3.5, h=7)
-
-#-----------------------------------------------------------------------
-# distribution of subcompartment combinations
-#-----------------------------------------------------------------------
-
-dc <- ddply(subDF, .(group, subcomp_combination), summarize, count=table(as.character(subcomp_combination), useNA="ifany"))
-summedCounts <- rep(ddply(dc, .(group), summarize, s=sum(count))$s, each=length(unique(dc$subcomp_combination)))
-subDFcomb <- cbind(dc, cbind(summedCounts, percent=dc$count * 100 / summedCounts))
-
-# add percent position for labels:
-subDFcomb <- ddply(subDFcomb, .(group), 
-   transform, pos = cumsum(percent) - (0.5 * percent)
-)
-
-# mark pairs with unknown compartment in combination
-subDFcomb$subcomp_combination[is.na(subDFcomb$subcomp_combination)] <- "unknown"
-
-g <- ggplot(subDFcomb, aes(x=subcomp_combination, fill = group, y = percent)) +
- geom_bar(stat="identity", position="dodge") + theme_bw() + theme(legend.position = "bottom", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual("", values=COL) + ylab("%") + xlab("Compartment combination") +
- geom_text(aes(label = signif(percent,3)), position=position_dodge(width=1), vjust=.5, hjust=0, angle=90)
-ggsave(paste0(outPrefix,".compartment_subcombination.pdf"), g, w=14, h=3.5)
-
-#-----------------------------------------------------------------------
-# same but without NAs
-#-----------------------------------------------------------------------
-
-dc <- ddply(subDF, .(group, subcomp_combination), summarize, count=table(as.character(subcomp_combination)))
-summedCounts <- rep(ddply(dc, .(group), summarize, s=sum(count))$s, each=length(unique(dc$subcomp_combination)))
-subDFcomb <- cbind(dc, cbind(summedCounts, percent=dc$count * 100 / summedCounts))
-
-# add percent position for labels:
-subDFcomb <- ddply(subDFcomb, .(group), transform, pos = cumsum(percent) - (0.5 * percent))
-
-g <- ggplot(subDFcomb, aes(x=subcomp_combination, fill = group, y = percent)) +
- geom_bar(stat="identity", position="dodge") + theme_bw() + theme(legend.position = "bottom", axis.text.x=element_text(angle = 45, hjust = 1)) + theme(text = element_text(size=15)) + scale_fill_manual("", values=COL) + ylab("%") + xlab("Compartment combination") +
- geom_text(aes(label = signif(percent,3)), position=position_dodge(width=1), vjust=.5, hjust=0, angle=90)
-ggsave(paste0(outPrefix,".compartment_subcombination.withoutNA.pdf"), g, w=14, h=3.5)
-
 
 #-----------------------------------------------------------------------
 # Percent of pairs with same compartment and same sub-compartment
@@ -2476,41 +1885,7 @@ p <- ggplot(subDFcomb, aes(x=housekeeping, fill = group, y = percent)) +
 ggsave(paste0(outPrefix,".housekeeping_in_pair_by_group.barplot.pdf"), p, w=3.5)
 
 #=======================================================================
-# UniProt Evidence classes in pairs
-#=======================================================================
-subDF <- subset(allDF, sSamp & sTAD & sExp & sSpec)
-
-dc <- ddply(subDF, .(group, UniProtEvidence), summarize, count=length(housekeeping))
-summedCounts <- rep(ddply(dc, .(group), summarize, s=sum(count))$s, each=length(levels(dc$UniProtEvidence))+1)
-subDFcomb <- cbind(dc, cbind(summedCounts, percent=dc$count * 100 / summedCounts))
-
-p <- ggplot(subDFcomb, aes(x=UniProtEvidence, fill = group, y = percent)) +
-    geom_bar(stat="identity", position="dodge", color="black") + theme_bw() + 
-    theme(text = element_text(size=20), axis.text.x=element_text(angle = 60, hjust = 1), legend.position = "bottom") + 
-    scale_fill_manual("", values=COL) + ylab("Gene pairs [%]") + xlab("Protein Evidence from UniProt") +
-    geom_text(aes(label = signif(percent,3)), position=position_dodge(width=1), vjust=1.25, size=4)
-
-ggsave(paste0(outPrefix,".UniProtEvidence_in_pair_by_group.barplot.pdf"), p, w=7)
-
-
-#=======================================================================
-# Output close paralogs with same strand for erique
-#=======================================================================
-
-subDF <- subset(allDF, sSamp & sTAD & sSpec & sExp &group=="paralog" & sameStrand & !is.na(HiCNoZero))
-subDF <- subDF[order(subDF$dist), c("g1", "g2", "HGNC_g1", "HGNC_g2", "dist", "HiC", "distBin")]
-
-write.table(subDF[subDF$dist <= 10,], file=paste0(outPrefix, ".super_close_pairs.dist_bellow10kb.csv"),
-    sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
-
-write.table(subDF[subDF$distBin == "10",], file=paste0(outPrefix, ".super_close_pairs.dist_between10and100kb.csv"),
-    sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
-
-nDF <- ddply(subDF, .(distBin), summarize, n=length(g1))
-
-
-#=======================================================================
 # save workspace image
 #=======================================================================
-#~ save.image(WORKIMAGE_FILE)
-#INFO: FANTOM enhancer map: 65953 of 66942 enhancer-associated genes could be mapped uniquelly to ENSG ID
+save.image(WORKIMAGE_FILE)
+

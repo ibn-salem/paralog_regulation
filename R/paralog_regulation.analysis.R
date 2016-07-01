@@ -1,119 +1,9 @@
 ########################################################################
 #
-# A script to analyse the co-regulation by distal enhancers of paralog 
-# genes and functional related genes.
-# It looks for association (compared to randomized paralog assignment) 
-# for a paralog pair (if paralog group is larger, remove randomly genes) to
-# - co-localization on linear genome (distance between them)
-# - common enhancers associations in correlation based maps
-# - co-occurances in same interaction domains
-# - more contact to each other in Hi-C map or more contacts to common enhancers.
+# A script to run parts of the paralog regulation analyse 
+#
 ########################################################################
 
-#--------------------------#
-# TODOs and known issues:  #
-#--------------------------#
-# DONE:
-# X list of paralog pairs contains duplicates (each direction)
-# X Some paralog pairs might not be contained in both direction!!!
-# X randomization with all genes
-# X annotate the GR objects of pairs (is in same domain TREU/FALSE)
-# X faster mapping of genes to enhancer IDs (write custom function)
-# - randomized ehancer-promoter map
-# X random gene pairs with same distance distribution as paralogs
-# X take only one unique pair per gene
-# x exclude real paralog pairs in randomly sampled control set
-# X select unique pair per gene by maximal sequence similarity
-# x in sampling process, consider density smooth parameters (might be the reason for slightly to less very close (nearly zero) distance sampled pairs)
-#   Try to take wight not from absolut, but relativ distances
-# After discussion with Miguel (16.04.15):
-# x Find a metric to get exclusive expression (threshold on low exp genes, than correlation?)
-# X Use maximal information coefficient (MIC) 
-# X Search for TF binding motifs in promoter and enhancer of paralogs 
-# X check for co-expression of all genes in same TAD (not paralogs)
-# X used observed/expected matrix provided by vectors from Rao et al. 2014
-# X Use list of all TADs from Rao14 and Dixon12
-# X redesin analysis: 
-# X     - make general function for gene-pairs (instead of paralogs)
-# X     - Do all annotation on all possible gene pairs before sampling
-# => RECHECK: MIC score with toy example and dot plot (R and MIC should correlate)
-# - preselect non-coexistence gene pairs and cluster tissues with them
-# X To check which distal pair cut-off makes most sense bin pairs by size and make boxplots using ggplot2
-# RECHECK: The maximum matching code might overwrite non-symetric similarities in case of A-B B-A pairs
-# X check for same strand correlation with distance
-# X Use capture Hi-C data (from latest Peter Fraser paper) to quantify contacts between paralogs
-#       - recheck parsing and sparse matrix object (manually check function parseCaptureHiC in parseHiC.R)
-# # take duplication age (dS) into account
-# # for faster pipeline Run: outsource parsing of (and scanning) of TF motifs
-# - Recheck sampling of gene pairs by distance.
-#       - try to sample separatly for dist and enhancer
-#       - plot distal pair distance with sampled pairs with log-log qqplot
-#       - Maybe Sample according to distance of allCisPairs and divide close and distal afterwards
-
-# FEDBACK from RECOMB-CG 2015
-# - take duplication age into account, separate young and old pairs
-# - Are there paralogs with different functions? (non-coexistence expression?)
-# - For TAD vs. rearrangement correlation take length of intergenes into account.
-# - Direct correlation with syntenic blocks (use Magsimus or similar tools)
-
-
-# DISCUSSION: (after discussion with Miguel on 16.06.15
-# X leave out expression data for the first publication
-# X Question of interest: Paralogs fitting to TAD structure of genome?
-# x RECHECK carefully mouse and dog Hi-C data (and comparision to sampled genes)
-# x change scale of distance box plot of orthologs
-# x Synteny breaks of between mouse and human around TAD boundaries.
-# X Use >= 1MB as distal pair cut-off
-# X linear distance correlation for orthologs of sampled genes (should be less correlation?)
-# X Put numbers to Hi-C boxplot in ortholog analysis
-
-# FURTHER INTERESTING STUFF:
-# X GTEx Consortium RNA-seq data for expression analysis
-# - use other functional gene pairs (KEGG, GO (level?), PPI)
-# X Colocalization of paralog pairs in other organisms (% species with shared chrom)
-# - Use mouse Hi-C data from the Rao et al. 2014 paper
-
-# EXAMPLE:
-# - Check HoxA and HoxD locus in detail, as well as, IGf2/H19 locus (Kurukut et al. PNAS 2006)
-# X Use the PRC1 complex as example: 
-# X     - check for CBX2,4,8 on chr17 and CBX6,7 on chr22
-# X     - PHC1,2,3 are on diff. chrom
-# chr17: CBX1,2,8,4
-
-# ADDITIONAL ANALYSIS:
-# - repeat all analysis with all pairs, only two pairs
-# X CHECK: ratio of synonymous mutations used for pair choosing?
-# - check robustness to 1MB distance cutoff
-# - build sampled background separately for enhancer, and TAD/Hi-C 
-# - Check stable TADs, check definition. Why not significant?
-# X Significance test on expression correlation
-# - check linear distance conservation with correlation p-value
-# - Compute fraction of one-to-one orthologs within the same TAD from 
-#   only those human paralogs that are in the same TAD
-# - include size of mouse and dog TADs in the size boxplot of all TADs
-# - for expression analysis replace boxplot with density plot (similar to Fortin2015)
-# - Enhancer positioning pattern around pairs of paralogs (and within TADs)
-# X Evolutionary breakpoint of TADs
-# - check source of slight enrichment of negative expression correlation (use random pairs from different chromosomes)
-# - expression correlation of distal pairs
-
-# ISSUES TO BE FIXED BEFORE FINAL NUMBERS:
-# - TAD bed file and ranges +/- 1 error (Rao org data use 0-based including coords)
-# - make all gene pair data frames as.character()
-# - check mapping of enhancers to genes with tssGR object and id remapping
-#   DONE: 65953 of 66942 genes could be mapped uniquelly to ENSG IDs.
-
-# TO FINALIZE PIPELINE FOR SUBMISSION:
-# X redesign code to run on MOGON server
-# X use orghologMouse instead of orthologAll data set
-# X use seed() command for reproducible randomizations
-# - remove the following parts from the analysis (if not included in manuscript):
-#   X TF motif analysis
-#   X conserved TADs over all cell types
-#   x MIC score of expression correlation
-# - put sameTAD annotations in the closePairs not in the GR and combine replicated sampled pairs early
-
-require(biomaRt)        # to retrieve human paralogs from Ensembl
 require(stringr)        # for some string functionality
 require(RColorBrewer)   # for nice colors
 require(colorspace)     # for some more colors
@@ -121,8 +11,6 @@ require(GenomicRanges)  # for genomic intervals and overlap calculation
 require(rtracklayer)    # for import.bed
 require(plyr)           # count() function
 require(data.table)     # for data.table object
-require(gridExtra)      # for dotplot with denisty at axis
-require(gplots)         # heatmap.2 function
 require(ggplot2)        # for nice plots
 require(scales)         # for proper logarithmic scales in ggplot
 require(BiocParallel)   # for parallel computing
@@ -146,22 +34,11 @@ multicorParam <- MulticoreParam(RNGseed=RANDOM_SEED)
 register(multicorParam)  
 # bpparam() # to print current options
 
-
-HiCcolumns = c(c("HiCRaw", "HiC", "HiCobsExp", "captureC_raw", "captureC_ObsExp"), paste0(c("HiCRaw", "HiC", "HiCobsExp", "captureC_raw", "captureC_ObsExp"), "NoZero"))
-
-
 #-----------------------------------------------------------------------
 # load some custom functions
 #-----------------------------------------------------------------------
 source("R/functions.plot.R")
-source("R/functions.regMap.R")
-source("R/functions.GRanges.R")
 source("R/functions.genePairs.R")
-source("R/functions.genePairs.randomization.R")
-source("R/functions.genePairs.paralog_analysis.R")
-source("R/functions.Hi-C.R")
-source("R/parseHiC.R")
-
 
 #=======================================================================
 # 1.) Load data from exported WORKIMAGES
@@ -525,58 +402,6 @@ pdf(paste0(outPrefix, ".paralogPairs_sameStrand_dist.boxplot.pdf"), width=3.5)
 dev.off()
 
 #-----------------------------------------------------------------------
-# Paralog pairs across chromosomes
-#-----------------------------------------------------------------------
-# get number of pairs across each pair of chromosomes
-interChromPairsMatrix = interChromPairMatrix(paralogPairsUniq, tssGR)
-diag(interChromPairsMatrix) = NA
-
-pdf(paste0(outPrefix, ".paralogPairs_interchrom_counts.heatmap.pdf"))
-    my.heatmap.2(interChromPairsMatrix, Rowv=FALSE, Colv=FALSE, 
-        revC=FALSE, dendrogram="none", 
-        notecex=1, notecol="black", trace="none",
-        margins=c(2, 2), key.xlab="Paralog pairs", 
-        main="Human paralog gene pairs\n across chromosomes", col=colorRampPalette(brewer.pal(9,"Blues")), na.color="darkgray",
-        tracecol="darkgreen", keysize=1.5,key.title="Color Key",
-        ylab="Chromosomes", xlab="Chromosomes", ClabSide=3, RlabSide=2
-    )
-dev.off()
-
-# take enrichment over random gene pairs on these chromosomes
-# make random pairwise chrom matrix
-randChromPairMatrix = bplapply(randPairs, interChromPairMatrix, tssGR)
-Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-
-allRandChromPairMatrix =  Reduce("+", randChromPairMatrix)
-diag(allRandChromPairMatrix) = NA
-
-# calculate the log fold enrichment over random pairs
-logFoldMatrix = log2(
-        ((interChromPairsMatrix + 1) / sum(interChromPairsMatrix+1, na.rm=TRUE)) / 
-        ((allRandChromPairMatrix +1) / sum(allRandChromPairMatrix+1, na.rm=TRUE))
-    )
-
-pdf(paste0(outPrefix, ".paralogPairs_interchrom_log_obs_vs_rand.heatmap.pdf"))
-    my.heatmap.2(logFoldMatrix, Rowv=FALSE, Colv=FALSE, dendrogram="none", 
-        notecex=1, notecol="black", trace="none",
-        margins=c(2, 2), key.xlab="log_2(obs/exp)", 
-        main="Enrichment of paralog pairs\n over random pairs", col=colorRampPalette(rev(brewer.pal(11,"RdBu"))), na.color="darkgray", 
-        tracecol="darkgreen", keysize=1.5,key.title="Color Key",
-        ylab="Chromosomes", xlab="Chromosomes", ClabSide=3, RlabSide=2
-    )
-dev.off()
-
-pdf(paste0(outPrefix, ".paralogPairs_interchrom_log_obs_vs_rand.heatmap_dendrogram.pdf"))
-    my.heatmap.2(logFoldMatrix, revC=TRUE,
-        notecex=1, notecol="black", trace="none",
-        margins=c(4, 4), key.xlab="log_2(obs/exp)", 
-        main="Enrichment of paralog pairs\n over random pairs", col=colorRampPalette(rev(brewer.pal(11,"RdBu"))), na.color="darkgray", 
-        tracecol="darkgreen", keysize=1.5,key.title="Color Key",
-        ylab="Chromosomes", xlab="Chromosomes"
-    )
-dev.off()
-
-#-----------------------------------------------------------------------
 # 3) linear distance between paralogs
 #-----------------------------------------------------------------------
 
@@ -592,14 +417,6 @@ sampledDist = abs(sampCisPairsCombined[abs(sampCisPairsCombined[,"dist"]) <= MAX
 randDistPval <- wilcox.test(paraDist, randDist)$p.value
 sampleDistPval <- wilcox.test(paraDist, sampledDist)$p.value
     
-pdf(paste0(outPrefix, ".random_genes_distance.hist.pdf"))
-    par(cex=1.5, lwd=2, mfrow=c(2,1))
-    hist(paraDist, 50, col=COL_RAND[1],
-    main="Distance between paralog genes", xlab="Distance (kb)")
-    hist(randDist, 50, col=COL_RAND[2],
-    main="Distance between random genes", xlab="Distance (kb)")    
-dev.off()
-
 pdf(paste0(outPrefix, ".samped_random_para_dist.hist.pdf"))
     par(lwd=2, mfrow=c(3,1))
     par(cex=1.5,  mar=c(3, 4.1, 1.5, 2.1))
@@ -614,17 +431,6 @@ pdf(paste0(outPrefix, ".samped_random_para_dist.hist.pdf"))
 
 dev.off()
 
-# plot linear distance distribution for all distance thresholds:
-allSampCloseDist = sampCisPairsCombined[abs(sampCisPairsCombined[,"dist"]) <= MAX_DIST,"dist"]
-
-for (D in DIST_TH) {
-    pdf(paste0(outPrefix, ".paralogPairs_cis_within_", D/10^3, "kb.hist.pdf"))
-        par(cex=1.3, lwd=2, mfrow=c(2,1))
-        hist(abs(closePairs[abs(closePairs$dist) <= D, "dist"])/10^3, 50, col=COL[1], main=paste("Linear distance distribution between paralogs\n on same chromosome within", D/10^3, "kb"), xlab="Distance (kb)")
-
-        hist(abs(allSampCloseDist[abs(allSampCloseDist) <= D])/10^3, 50, col=COL[2], main=paste("Linear distance distribution between sampled gene pairs\n on same chromosome within", D/10^3, "kb"), xlab="Distance (kb)")
-    dev.off()
-}
 
 #-----------------------------------------------------------------------
 # Plot size distribution of domains
@@ -1343,7 +1149,6 @@ ggsave(p, file=paste0(outPrefix, ".close.TAD_by_group_and_species.barplot.pdf"),
 #-----------------------------------------------------------------------
 # Analyse HiC ontact frequencies
 message("Start to analyse Hi-C contacts...")
-
 
 
 HiCcolumnsSpecies = c(c("HiC", "HiCnorm"), paste0(c("HiC", "HiCnorm"), "NoZero"))

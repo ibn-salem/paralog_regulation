@@ -59,34 +59,15 @@ getAllGenePairs <- function(tssGR, maxDist, minDist=0){
 }
 
 #-----------------------------------------------------------------------
-# To sample random gene pairs get probability weights of all pairs 
-# according to the distribution of distances and linked enhancer in input
-# gene pair set
+# sample randomly pairs from the entire gene set with equal probabilities
 #-----------------------------------------------------------------------
-getSampleWeightsByDistAndEnhancers <- function(hitDF, tssGR, sourcePairs, ...){
-    
-    # get probability density for the number of linked enhancers
-    weightEH = weightByEnhancers(tssGR, c(sourcePairs[,1], sourcePairs[,2]))
-    
-    # combine the probabilites from both gene pair partners by assuming independence
-    pairWeightEH = ( weightEH[hitDF[,1]] * weightEH[hitDF[,2]] )
-    pairWeightEH = pairWeightEH / sum(pairWeightEH)
-    
-    # get observed probabilty density of distances in source pairs
-    distDens = approxfun(density(abs(sourcePairs$dist), ...))
-    pairWeightDist = distDens(abs(hitDF$dist))
-
-    # if probability is NA set it to 0
-    pairWeightDist[is.na(pairWeightDist)] = 0
-    pairWeightDist = pairWeightDist / sum(pairWeightDist)
-    
-    # combine the probabilities for linked enhancer and linear distance by multiplication by assuming independence
-    pairWeight = ( pairWeightEH * pairWeightDist ) 
-    pairWeight  = pairWeight / sum(pairWeight)
-    
-    return(pairWeight)
+getRandomPairs <- function(n, geneIDs){
+    randomPairs = data.frame(
+        t(replicate(n, sample(geneIDs, size=2, replace=FALSE))), 
+        stringsAsFactors=FALSE)
+    names(randomPairs) = c("g1", "g2")
+    return(randomPairs)
 }
-
 
 #-----------------------------------------------------------------------
 # returns sampling weights to sample from samp with probabilities observed in obs
@@ -108,16 +89,10 @@ weightsByBin <- function(obs, population, breaks=50){
     
     # get counts per bin in the population
     hPop <- hist(population, breaks=breaksAll, plot=FALSE)    
-
-    # define the relative counts per bin in the observed data set and the relative counts per bin in the population as bias in the population
-#~     obsFreq <- hObs$counts / length(obs)
-#~     populationBias <- hPop$counts / length(population)
-    
     
     # get the number of observed counts normalized to one as weight
     # normalize the number of observed counts by the bias observed in the population 
     weight <- hObs$counts[binPop] / hPop$counts[binPop] 
-#~     weight <- obsFreq[binPop] / populationBias[binPop] 
 
     # remove NA's, e,g, bis not observed in obs but in population. Set their probability to zero 
     weight[is.na(weight)] = 0
@@ -129,27 +104,6 @@ weightsByBin <- function(obs, population, breaks=50){
 }
 
 #-----------------------------------------------------------------------
-# To sample random gene pairs get probability weights of all pairs 
-# according to the distribution of distances and linked enhancer in input
-# gene pair set
-#-----------------------------------------------------------------------
-weightsByBinDistAndEnhancers <- function(distWeight, sourcePairs, hitDF, tssGR){
-    
-    # get probability density for the number of linked enhancers
-    weightEH <- weightByEnhancers(tssGR, c(sourcePairs[,1], sourcePairs[,2]))
-    
-    # combine the probabilites from both gene pair partners by assuming independence
-    pairWeightEH <- ( weightEH[hitDF[,1]] * weightEH[hitDF[,2]] )
-    pairWeightEH <- pairWeightEH / sum(pairWeightEH)
-    
-    # combine the probabilities for linked enhancer and linear distance by multiplication by assuming independence
-    pairWeight <- ( pairWeightEH * distWeight ) 
-    pairWeight  <- pairWeight / sum(pairWeight)
-    
-    return(pairWeight)
-}
-
-#-----------------------------------------------------------------------
 # Returns probabilites for sampling from a population according to the 
 # the frequencies of a variable (factor) observed in an observed set.
 # obs           := vector of variable (factor) of observed set
@@ -158,16 +112,11 @@ weightsByBinDistAndEnhancers <- function(distWeight, sourcePairs, hitDF, tssGR){
 weightsByFactorFreq <- function(obs, population){
 
     # annotate all pairs with sameStrand information
-#~     freqTabObs <- table(obs) / length(obs)
-#~     freqTabPop <- table(population) / length(population)
     freqObsDF <- count(as.vector(obs))
     freqPopDF <- count(as.vector(population))
 
-    # convert the factor to character
-#~     factStrPop = as.character(population)
     
     # take ratio of frequencies in opserved set and weight for randomly sampling from population set
-#~     weight = freqTabObs[factStrPop] / freqTabPop[factStrPop]
     weight = freqObsDF[match(as.vector(population), freqObsDF$x), "freq"] / freqPopDF[match(as.vector(population), freqPopDF$x), "freq"]
     
     # remove NA's, e,g, number of enhancers not observed in paralogs but in set of all genes. Set their probability to zero 
@@ -177,34 +126,6 @@ weightsByFactorFreq <- function(obs, population){
     propability = weight / sum(weight)
     
     return(propability)
-}
-
-#-----------------------------------------------------------------------
-# Get sampling weight only based on distance (or other column by "colName")
-#-----------------------------------------------------------------------
-getSampleWeightsByDist <- function(hitDF, sourcePairs, colName="dist", ...){
-
-    # get observed probabilty density of distances in real source pairs
-    distDens = approxfun(density(abs(sourcePairs[,colName]), ...))
-    pairWeightDist = distDens(abs(hitDF[,colName]))
-
-    # set prob of NAs to zero
-    pairWeightDist[is.na(pairWeightDist)] = 0
-    return(pairWeightDist / sum(pairWeightDist, na.rm=TRUE))
-}
-
-#-----------------------------------------------------------------------
-# Get sampling weight in log space
-#-----------------------------------------------------------------------
-getSampleWeightsByDistLog <- function(hitDF, sourcePairs, colName="dist", ...){
-
-    # get observed probabilty density of distances in real source pairs
-    distDens = approxfun(density(log10(abs(sourcePairs[,colName])), ...))
-    pairWeightDist = distDens(log10(abs(hitDF[,colName])))
-
-    # set prob of NAs to zero ( so they will not be sampled)
-    pairWeightDist[is.na(pairWeightDist)] = 0
-    return(pairWeightDist / sum(pairWeightDist, na.rm=TRUE))
 }
 
 #-----------------------------------------------------------------------
@@ -227,11 +148,6 @@ sampleFromAllPairsByWeight <- function(n, hitDF, tssGR, weight){
 }
 # rP = sampleFromAllPairs( n=100, hitDF=allGenePairs,tssGR, sourcePairs=cisPairs[abs(cisPairs$dist) <= MAX_DIST, ], sourceGenes=paralogs[,1])
          
-
-#-----------------------------------------------------------------------
-# sample randomly from vector, even from size one vector with integer elements
-#-----------------------------------------------------------------------
-sample.vec <- function(x, ...) x[sample(length(x), ...)]
 
 #-----------------------------------------------------------------------
 # get weights for sampling gene pairs from popPairIDs according to the number 
@@ -268,44 +184,4 @@ weightPairsByEnhancers <- function(tssGR, obsPairs, popPairIDs){
     weightPair <- weight1 * weight2
     propPair <- weightPair / sum(weightPair)
     return(propPair)
-}
-
-#-----------------------------------------------------------------------
-# get weights for all genes for sampeling according to the distribution 
-# of linked enhancers in the set of sourceGenes (paralog genes)
-#-----------------------------------------------------------------------
-weightByEnhancers <- function(tssGR, sourceNames){
-
-    # non-adjusted frequencies of enhancers in all genes:
-    allGenesEnhancerFreqTable = table(mcols(tssGR)[, "linked_enhancer"])
-    
-    # get distribution function of linked enhancer elements in the paralog genes
-    paralogsEnhancerFreqTable = table(mcols(tssGR[sourceNames])[,"linked_enhancer"])
-    
-    # convert the numbers to character
-    ehCounts = as.character(mcols(tssGR)[, "linked_enhancer"])
-    
-    # take ratio of enhancers in paralogs and enhancers in all genes as weight for randomly sampling from all genes
-    weight = paralogsEnhancerFreqTable[ehCounts] / allGenesEnhancerFreqTable[ehCounts]
-    
-    # remove NA's, e,g, number of enhancers not observed in paralogs but in set of all genes. Set their probability to zero 
-    weight[is.na(weight)] = 0
-    
-    # normalize weights to 1
-    weight = weight / sum(weight)
-    
-    return(weight)
-}
-# weight = weightByEnhancers(tssGR, paralogs[,1])
-# randGenes = sample(genes[,1], nrow(genes), prob=weight, replace=TRUE)
-
-#-----------------------------------------------------------------------
-# sample randomly pairs from the entire gene set with equal probabilities
-#-----------------------------------------------------------------------
-getRandomPairs <- function(n, geneIDs){
-    randomPairs = data.frame(
-        t(replicate(n, sample(geneIDs, size=2, replace=FALSE))), 
-        stringsAsFactors=FALSE)
-    names(randomPairs) = c("g1", "g2")
-    return(randomPairs)
 }

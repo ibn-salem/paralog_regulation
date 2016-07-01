@@ -1,14 +1,13 @@
 ########################################################################
 #
 #   This script implements pipeline like analysis functions and is used
-#   by 'paralog_regulation.R'
+#   by 'paralog_regulation.sampling_annotation.R' script.
 #   It depends on functions in 'functions.genePairs.R'
 # 
 ########################################################################
 
 #-----------------------------------------------------------------------
 # runs the basic paralog analysis for given input data. 
-# TODO: define COL2 and COL, MAX_DIST and some others...
 #-----------------------------------------------------------------------
 runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR, genesGR, TAD, tissueName, HiClist, HiClistNorm){
 
@@ -306,16 +305,6 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
     dev.off()
     
     pdf(paste0(outPrefix, ".samped_random_para_dist.hist.pdf"))
-#~         par(lwd=2, mfrow=c(3,1))
-#~         par(cex=1.5,  mar=c(3, 4.1, 1.5, 2.1))
-#~         
-#~         hist(paraDist, 50, col=COL_RAND[1],
-#~         main="Paralog gene pairs", xlab="")
-#~         hist(randDist, 50, col=COL_RAND[2],
-#~         main="Random gene pairs", xlab="")    
-#~         hist(sampledDist, 50, col=COL[2],
-#~         main="Sampled gene pairs", xlab="")
-#~         mtext("Distance (kb)", side=1, line=2)    
 
         par(lwd=2, mfrow=c(3,1))
         par(cex=1.5,  mar=c(3, 4.1, 1.5, 2.1))
@@ -508,7 +497,4 @@ runBasicParalogAnalysis <- function(outPrefix, paralogPairs, pairScoreCol, tssGR
 #~ tissueName="Mouse"
 #~ HiClist=speciesHiC[["mmusculus"]][[1]]
 #~ HiClistNorm=speciesHiC[["mmusculus"]][[2]]
-#~ 
 
-
-   

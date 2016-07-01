@@ -1,32 +1,29 @@
 ########################################################################
 #
-# A script to analyse the co-regulation by distal enhancers of paralog 
-# genes and functional related genes.
-# It looks for association (compared to randomized paralog assignment) 
-# for a paralog pair (if paralog group is larger, remove randomly genes) to
-# - co-localization on linear genome (distance between them)
+# A script to analyse the co-regulation of paralog genes.
+# It looks for association (compared to sampled gene pairs) 
+# for a paralog pair to
+# - co-localization on linear genome in same chromosome and short distance between genes
 # - common enhancers associations in correlation based maps
-# - co-occurances in same interaction domains
+# - co-occurances in same TAD
 # - more contact to each other in Hi-C map or more contacts to common enhancers.
+# - other related features
 ########################################################################
 
-
-require(biomaRt)        # to retrieve human paralogs from Ensembl
 require(stringr)        # for some string functionality
 require(GenomicRanges)  # for genomic intervals and overlap calculation
 require(rtracklayer)    # for import.bed
-require(plyr)           # count() function
-require(data.table)     # for data.table object
 require(BiocParallel)   # for parallel computing
 
 #-----------------------------------------------------------------------
 # Load parameters from external script
 #-----------------------------------------------------------------------
 # read parameter script location from command-line argument
+
 #~ args <- commandArgs(trailingOnly = TRUE)
 #~ PARAM_SCRIPT=args[1]
-
 PARAM_SCRIPT="R/paralog_regulation.param.v16.R"
+
 message(paste("INFO: Load parameter from this script:", PARAM_SCRIPT))
 print(PARAM_SCRIPT)
 
@@ -45,20 +42,17 @@ register(multicorParam)
 #-----------------------------------------------------------------------
 # load some custom functions
 #-----------------------------------------------------------------------
-source("R/functions.plot.R")
 source("R/functions.regMap.R")
 source("R/functions.GRanges.R")
 source("R/functions.genePairs.R")
 source("R/functions.genePairs.randomization.R")
 source("R/functions.genePairs.paralog_analysis.R")
-source("R/functions.Hi-C.R")
 source("R/parseHiC.R")
 
 # load ensemble data sets of genes and paralog pairs
 source("R/data.ensembl.R")     # load ensambl data
 source("R/data.expression.R")  # load expression data from EBI expression atlas
 source("R/data.captureHiC.R")  # load capture Hi-C data between promoters from Mifsud et al. 2015
-source("R/data.gene_age.R")  # load duplication age for paralogs as computed by Pablo Mier Munoz
 
 
 if (!LOAD_PAIRS) {
@@ -95,18 +89,8 @@ if (!LOAD_PAIRS) {
         DixonTADs <- lapply(DixonDomainFiles, import.bed, seqinfo=seqInfo)
         
         stableTADs <- list(
-        #~     "stable_TADs_n3_f80"=getConservedTADs(RaoTADs, n=3, fraction=.8),
-        #~     "stable_TADs_n3_f90"=getConservedTADs(RaoTADs, n=3, fraction=.9),
-        #~     "stable_TADs_n4_f80"=getConservedTADs(RaoTADs, n=4, fraction=.8),
             "stable_TADs"=getConservedTADs(RaoTADs, n=4, fraction=.9)
-        )
-        
-        #~ stableTADsRes <- list(
-        #~     "stable_TADs_n3_10kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=10^4), n=3),
-        #~     "stable_TADs_n3_50kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=5*10^4), n=3),
-        #~     "stable_TADs_n4_10kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=10^4), n=4),
-        #~     "stable_TADs_n4_50kb"=getConservedByHits(resolutionOverlap(allTADsRaoGR, allTADsRaoGR, resolution=10^4), n=4)
-        #~ )
+        )        
         
         allTADs = c(
             RaoTADs,
@@ -137,12 +121,7 @@ if (!LOAD_PAIRS) {
         compB <- reduce(subCompGR[subCompGR$comp == "B" & !is.na(subCompGR$comp)])
         compB$comp <- "B"
         compGR <- sort(c(compA, compB))
-        
-        # annotate tssGR with compartment and sub-compartment
-        #~ tssCompHit <- findOverlaps(tssGR, subCompGR)
-        #~ mcols(tssGR)[queryHits(tssCompHit), "comp"] <- subCompGR[subjectHits(tssCompHit)]$comp
-        #~ mcols(tssGR)[queryHits(tssCompHit), "subcomp"] <- subCompGR[subjectHits(tssCompHit)]$subcomp
-        
+                
         #-----------------------------------------------------------------------
         # Load Hi-C data from Rao et al. 2014
         #-----------------------------------------------------------------------
@@ -155,14 +134,10 @@ if (!LOAD_PAIRS) {
             
             # parse expected contacts by distance for each chromosome
             expectedHiCList <- parseRaoExpected(CELL, HIC_RESOLUTION, HIC_DATA_DIR)
-        
             
             # save data for faster loading next time
             save(HiClist, HiClistRaw, expectedHiCList, file=paste0(outDataPrefix, ".Hi-C.", CELL, ".", HIC_RESOLUTION, ".HiClist_expectedHiCList.RData"))
-            
-            # write Hi-C interaction in track.txt format for visuallization in Epi-Genome browser
-        #~     writeHiCinteractions(HiClist[1], paste0(outDataPrefix, ".Hi-C.", CELL, ".", HIC_RESOLUTION, ".map.track.txt"))
-        
+                    
         }else{
             load(paste0(outDataPrefix, ".Hi-C.", CELL, ".", HIC_RESOLUTION, ".HiClist_expectedHiCList.RData"))
         }
@@ -202,18 +177,6 @@ if (!LOAD_PAIRS) {
         housekeepingGenes <- refSeqToENSG[housekeepingDF[,2]]
 
         #-----------------------------------------------------------------------
-        # parse UniProt evidence
-        #-----------------------------------------------------------------------
-        evidenceDF <- read.table("data/UniProt/uniprot-all.txt.evidence.tab", header=FALSE, sep="\t")
-        
-        # map ENSG to UniProt Accession 
-        tssGR$UniPSwiss <- uniPSwissToEnsgDF[match(names(tssGR), uniPSwissToEnsgDF[,2]),1]
-
-        # annotate tssGR with UniProt Evidence for protein
-        tssGR$UniProtEvidence <- evidenceDF[match(tssGR$UniPSwiss,evidenceDF[,1]),2]
-        tssGR$UniProtEvidence <- factor(tssGR$UniProtEvidence, levels=sort(levels(tssGR$UniProtEvidence)), ordered=TRUE)
-        
-        #-----------------------------------------------------------------------
         # save all loaded data as image file
         #-----------------------------------------------------------------------
         save.image(paste0(outDataPrefix, ".loaded_data.Rdata"))
@@ -247,19 +210,7 @@ if (!LOAD_PAIRS) {
     # write all paralog pairs to output file:
     write.table(paralogPairsUniqPnonOVL, file=paste0(outPrefix, ".paralog_pairs.paralogPairsUniqPnonOVL.txt"),
         sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
-    
-    #~ 
-    #~ # get for each gene only one unique pair, the one with highest similarity
-    #~ # this is computed by an maximum weight matching
-    #~ paralogPairsWithDS = paralogPairs[!is.na(paralogPairs[,"hsapiens_paralog_ds"]),]
-    #~ paralogPairsUniqG = uniquePairPerGeneBySim(paralogPairsWithDS, -1*paralogPairsWithDS[,"hsapiens_paralog_ds"])
-    #~     
-    #~ # get only a unique pair order (one of A-B, B-A) form the unique pairs
-    #~ paralogPairsUniq = uniquePair(paralogPairsUniqG)
-    #~ 
-    #~ # subset of paralog pairs that are located on the same chromosome
-    #~ allCisPairs = getCisPairs(paralogPairsUniq, tssGR)
-    
+        
     # get for each gene only one unique pair, the one with highest similarity
     # this is computed by an maximum weight matching
     paralogPairsUniqPnonOVLWithDS = paralogPairsUniqPnonOVL[!is.na(paralogPairsUniqPnonOVL[,"hsapiens_paralog_ds"]),]
@@ -279,7 +230,6 @@ if (!LOAD_PAIRS) {
     #-----------------------------------------------------------------------
     # add same Strand info to all paralogs
     paralogPairsUniq = addSameStrand(paralogPairsUniq, tssGR)
-    paralogPairsUniq = addMinEvidence(paralogPairsUniq, tssGR)
     
     # add linear distance between TSS
     paralogPairsUniq = addPairDist(paralogPairsUniq, tssGR)
@@ -358,27 +308,17 @@ if (!LOAD_PAIRS) {
         allCisPairs <- addAgeFlags(allCisPairs, orthologsSpeciesList[[orgStr]], orgStr)
     
     }
-    
-    # add duplication age
-    allCisPairs <- addAge(allCisPairs, pair.ac, uniPSwissToEnsgDF)
-    
+        
     # add HIPPIE
     allCisPairs <- addHIPPIE(allCisPairs, hippie)
 
     # add housekeeping gene information
     allCisPairs <- addInGeneSet(allCisPairs, housekeepingGenes, "housekeeping")
-    
-    # add UniProt evidence
-    allCisPairs <- addMinEvidence(allCisPairs, tssGR)
-    
+        
     # save allCisPairs with all annotations
     write.table(allCisPairs, file=paste0(outPrefix, ".paralog_pairs.allCisPairs.annotated.txt"),
         sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
-    
-    #~ allCisPairs <- read.table(paste0(outPrefix, ".paralog_pairs.allCisPairs.annotated.txt"), header=TRUE, sep="\t")
-    #~ allCisPairs[,1] <- as.character(allCisPairs[,1])
-    #~ allCisPairs[,2] <- as.character(allCisPairs[,2])
-    
+        
     #-----------------------------------------------------------------------
     # Filter for close and distal pairs
     #-----------------------------------------------------------------------
@@ -406,10 +346,7 @@ if (!LOAD_PAIRS) {
     
     write.table(nPairs, file=paste0(outPrefix, ".paralog_pairs_filtering.txt"),
         sep="\t", quote=FALSE, col.names=FALSE)
-    
-    # save before sampling
-    #~ save.image(paste0(WORKIMAGE_FILE, ".only_annotation.Rdata"))
-    
+        
     #=======================================================================
     # 3.) Sample random control/background data sets
     #=======================================================================
@@ -522,11 +459,9 @@ if (!LOAD_PAIRS) {
 
     # annotate random pairs with common compartment, Age, and HIPPIE
     randPairs <- lapply(randPairs, addCommonCompartment, tssGR, compGR, subCompGR)
-    randPairs <- bplapply(randPairs, addAge, pair.ac, uniPSwissToEnsgDF)
     Sys.sleep(3) # hack to fix problems with bplapply on MOGON
     randPairs <- lapply(randPairs, addHIPPIE, hippie)
     randPairs <- lapply(randPairs, addInGeneSet, housekeepingGenes, "housekeeping")
-    randPairs <- lapply(randPairs, addMinEvidence, tssGR)
     
     # annotate with orthologs in other species:
     for (orgStr in names(orgStr2Name)){
@@ -618,11 +553,7 @@ if (!LOAD_PAIRS) {
         for (i in seq(N_RAND)){
             sampPairs[[j]][[i]][,names(allTADs)] <- data.frame( mcols(gplGR[[i]])[,names(allTADs)] )
         }
-        
-        # DEBUG SAVE
-    #~     save(sampClosePairs, sampEhClosePairs, sampDistalPairs, sampCisPairs, sampCisPairs, file=paste0(WORKIMAGE_FILE, ".sampled_pairs_before_annotation.Rdata"))
-        #load(paste0(WORKIMAGE_FILE, ".sampled_pairs_before_Hi-C_annotation.Rdata"))
-        
+                
         # Adds Hi-C contact frequencies to a gene pair data set
         for (i in 1:N_RAND) {
             message(paste("Work on sample:", i))
@@ -649,24 +580,16 @@ if (!LOAD_PAIRS) {
 
         # add common compartment and subcompartment
         sampPairs[[j]] <- lapply(sampPairs[[j]], addCommonCompartment, tssGR, compGR, subCompGR)
-        
-        # add duplication age
-        sampPairs[[j]] <- bplapply(sampPairs[[j]], addAge, pair.ac, uniPSwissToEnsgDF)
-        Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-    
+            
         # add HIPPIE
         sampPairs[[j]] <- lapply(sampPairs[[j]], addHIPPIE, hippie)
 
         # add house keeping gene
         sampPairs[[j]] <- lapply(sampPairs[[j]], addInGeneSet, housekeepingGenes, "housekeeping")
-            
-        # add min UniProt evidence
-        sampPairs[[j]] <- lapply(sampPairs[[j]], addMinEvidence, tssGR)
-            
+                    
     }
 
     # attach list items to search path by their names in list of sampled pairs
-#~     attach(sampPairs, warn.conflicts=FALSE)
     sampCisPairs <- sampPairs[["sampCisPairs"]]
     sampDistEhPairs <- sampPairs[["sampDistEhPairs"]]
     sampDistEhStrandPairs <- sampPairs[["sampDistEhStrandPairs"]]
@@ -693,10 +616,9 @@ if (!LOAD_PAIRS) {
     load(paste0(WORKIMAGE_FILE, ".sampling_and_annotation.Rdata"))
 }
 
-#~ stop("INFO: Stopped script HERE!")
 
 #=======================================================================
-# Build data frames for analysis
+# Build data.frame with all annotations for analysis
 #=======================================================================
 
 #-----------------------------------------------------------------------
@@ -709,9 +631,6 @@ breaksCis = 10^(0:9) / 10^3
 breaksTAD = c(0, 10, 1000, Inf)
 
 
-#=======================================================================
-# make data.frame with all annotations
-#=======================================================================
 
 # combine all parlogs and all randomly sampled pairs
 paralogPairsUniq$g1 <- paralogPairsUniq[,1]
@@ -794,9 +713,7 @@ nExp <- length(expDFlist)
 nSpecies  <- length(orgStr2Name) 
 
 # define columns for species specific information
-#speciesCols <- c("one2one", "sameChrom", "dist", "TAD", "HiC", "HiCnorm", "commonOrtholg", "NotOne2one")
 speciesCols <- str_split_fixed(grep(names(orgStr2Name)[1], cC, value=TRUE), '_', 2)[,2]
-
 
 
 # create data.frame with multiple rows per gene pair for the different data sources
@@ -837,9 +754,9 @@ allDF[,"ortholog_TAD"] <- factor(allDF[,"ortholog_TAD"], c(TRUE, FALSE), c("same
 # add NoZero column for species Hi-C data
 allDF <- addNoZero(allDF, cols=c("ortholog_HiC", "ortholog_HiCnorm"))
 
-#~ # save as table
-#~ write.table(allDF, file=paste0(outPrefix, ".allDF.csv"),
-#~     sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
+# save as table
+write.table(allDF, file=paste0(outPrefix, ".allDF.csv"),
+    sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
 
 # save both data sets as image
 save(aP, allDF, file=paste0(WORKIMAGE_FILE, ".aP_allDF.Rdata"))
@@ -854,8 +771,6 @@ message("Finish Mouse paralog analysis!")
 
 runBasicParalogAnalysis(paste0(outPrefix, ".dog"), paralogPairsDog, "cfamiliaris_paralog_ds", speciesTssGR[["cfamiliaris"]], speciesGenesGR[["cfamiliaris"]], speciesTADs[["cfamiliaris"]], tissueName="Dog", HiClist=speciesHiC[["cfamiliaris"]][[1]], HiClistNorm=speciesHiC[["cfamiliaris"]][[2]])
 message("Finish Dog paralog analysis!")
-
-
 
 
 #=======================================================================

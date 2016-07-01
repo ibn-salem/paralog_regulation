@@ -10,10 +10,7 @@ require(stringr)        # for some string functionality
 require(GenomicRanges)
 require(rtracklayer)    # for import.bed
 require(plyr)           # count() function
-#~ require(entropy)        # for function 'mi.plugin()' to calculate mutual information
 require(rPython)        # to execute python code from within R
-require(minerva)        # to calculate maximal information coefficient (MIC) Reshef et al 2011
-
 
 # load other custom modules
 source("R/parseHiC.R")
@@ -45,16 +42,6 @@ uniquePair <- function(genePairs){
     pairID = apply(apply(genePairs[,1:2], 1, sort), 2, paste, collapse="_")
     
     genePairs[!duplicated.random(pairID),]
-}
-
-#-----------------------------------------------------------------------
-# returns true if only unique pairs (no A-B, B-A dups) are contained in genePairs
-#-----------------------------------------------------------------------
-hasDupPairs <- function(genePairs){
-    
-    pairID = apply(apply(genePairs[,1:2], 1, sort), 2, paste, collapse="_")
-    length(pairID) != length(unique(pairID))
-    
 }
 
 
@@ -112,106 +99,6 @@ uniquePairPerGeneBySim <- function(genePairs, similarity){
     return(uniqPairs)
 }
 
-
-
-#-----------------------------------------------------------------------
-# get only one pair per paralog gene group by choosing the pair with highest 
-# sequence similarity
-#-----------------------------------------------------------------------
-uniquePairPerGroupBySim <- function(genePairs, similarity){
-
-    
-    # load the igraph package
-    require(igraph)
-    
-    # create the graph from gene paris
-    g = graph.data.frame(genePairs, directed=FALSE)
-    
-    # take similarity as edge weight
-    E(g)$weight = similarity
-    
-    # get connected components
-    conComp = clusters(g)
-    message(paste("Finished computation of", conComp$no, "connected components"))
-    
-    maxPairs = sapply(1:conComp$no, function(i) {
-    
-        
-        # get nodes corresponding to this component
-        nodes = V(g)[conComp$membership == i]
-
-        # get edges:
-        edges = E(g)[inc(nodes)]
-        
-        ## get index of edge with max edge weight
-        maxEdgeIdx = as.numeric(edges)[which.max(edges$weight)][1]
-                
-        #message(paste("Work on cluster ", i))
-        
-        # get index of edges with max weight
-        return(maxEdgeIdx)
-    })
-    
-    return(genePairs[maxPairs,])
-        
-}
-#maxSimPairs = uniquePairPerGroupBySim(paralogPairs[1:1000,], paralogPairs$hsapiens_paralog_perc_id[1:1000])
-
-#-----------------------------------------------------------------------
-# Filters for gene paris that occures only as tow-pairs (not in triplets, quads...)
-#-----------------------------------------------------------------------
-onlyTwoPairs <- function(genePairs, includeDuplicates=FALSE){
-
-    allGeneNames = c(genePairs[,1], genePairs[,2])
-    
-    # count the occurrences of each gene
-    geneCounts = count(allGeneNames)
-    rownames(geneCounts) = geneCounts[,1]
-    
-    # for each pair test if gene are only in two paris
-    if(includeDuplicates){
-        isTwoPair = geneCounts[genePairs[,1], 2] == 2 & geneCounts[genePairs[,2], 2] == 2
-    }else{
-        isTwoPair = geneCounts[genePairs[,1], 2] == 1 & geneCounts[genePairs[,2], 2]== 1
-    }
-
-    return(genePairs[isTwoPair,])
-}
-
-
-#-----------------------------------------------------------------------
-# get all adjacent gene pairs as gene pair data.frame
-#-----------------------------------------------------------------------
-getAdjacentPairs <- function(tssGR){
-    
-    # sort by ignoring strand
-    sortedTSS = sort(tssGR, ignore.strand=TRUE)
-    # make strand artificially to '+' because precede is calculated with respect to transcription direction
-    strand(sortedTSS) = "+"
-    
-    # get the next tss for each gene along the chromsome
-    # using the precede() function from GenomicRanges package
-    nextGene = precede(sortedTSS)
-
-    gP = data.frame(
-        g1 = as.character(id(sortedTSS[!is.na(nextGene)])), 
-        g2 = as.character(id(sortedTSS[nextGene[!is.na(nextGene)]]))
-    )
-
-}
-
-#-----------------------------------------------------------------------
-# test if gene pairs are non-overlapping
-#-----------------------------------------------------------------------
-nonOverlappingGenePairs <- function(genePairs, genesGR, useIDs=FALSE){
-    
-    genesHitDF <- as.data.frame(findOverlaps(genesGR, genesGR))
-    ovl <- containsGenePairs(genePairs, negPairs=genesHitDF, gPidx=useIDs, nPidx=TRUE, gr=genesGR)
-    return( ! ovl )
-    
-}
-
-
 #-----------------------------------------------------------------------
 # filter gene pairs by negative pair set
 #-----------------------------------------------------------------------
@@ -248,73 +135,14 @@ containsGenePairs <- function(genePairs, negPairs, gPidx=FALSE, nPidx=FALSE, gr=
 }
 
 #-----------------------------------------------------------------------
-# function to add the information if orthologs are directly adjacent to each other
+# test if gene pairs are non-overlapping
 #-----------------------------------------------------------------------
-orthologsAdjacent <- function(gP, speciesLabel, orthologsSpeciesList, tssGRspecies){
+nonOverlappingGenePairs <- function(genePairs, genesGR, useIDs=FALSE){
     
-    # sort by ignoring strand
-    sortedTSS = sort(tssGRspecies, ignore.strand=TRUE)
-    # make strand artificially to '+' because precede is calculated with respect to transcription direction
-    strand(sortedTSS) = "+"
-
-    g1 = as.character(gP[,1])
-    g2 = as.character(gP[,2])
-    orthoMap = orthologsSpeciesList[[speciesLabel]]
+    genesHitDF <- as.data.frame(findOverlaps(genesGR, genesGR))
+    ovl <- containsGenePairs(genePairs, negPairs=genesHitDF, gPidx=useIDs, nPidx=TRUE, gr=genesGR)
+    return( ! ovl )
     
-    g1_orthoIDX = match(g1, orthoMap[,1])
-    g2_orthoIDX = match(g2, orthoMap[,1])
-    
-    g1_type = orthoMap[g1_orthoIDX, paste0(speciesLabel, "_homolog_orthology_type")]
-    g2_type = orthoMap[g2_orthoIDX, paste0(speciesLabel, "_homolog_orthology_type")]
-    
-    g1_gene = orthoMap[g1_orthoIDX, paste0(speciesLabel, "_homolog_ensembl_gene")]
-    g2_gene = orthoMap[g2_orthoIDX, paste0(speciesLabel, "_homolog_ensembl_gene")]
-
-    # check that the homology type of both genes is 'one2one'
-    boghOne2one = g1_type == "ortholog_one2one" & g2_type == "ortholog_one2one"
-    
-    # check that both orhtologs are in the set of TSS of this species
-    bothInTSS = g1_gene %in% names(sortedTSS) & g2_gene %in% names(sortedTSS)
-
-    boghOne2one = boghOne2one & !is.na(boghOne2one) & bothInTSS
-
-
-    preIDX = precede(sortedTSS[g1_gene[boghOne2one]], sortedTSS)
-    pre = rep(NA, length(preIDX))
-    pre[!is.na(preIDX)] = names(sortedTSS[preIDX[!is.na(preIDX)]])
-
-    folIDX = follow(sortedTSS[g1_gene[boghOne2one]], sortedTSS)
-    fol = rep(NA, length(folIDX))
-    fol[!is.na(folIDX)] = names(sortedTSS[folIDX[!is.na(folIDX)]])
-    
-    isAdjacent = (pre == g2_gene[boghOne2one]) | (fol == g2_gene[boghOne2one])
-
-    # get values for all input gene pairs
-    orthologsAdjacent = rep(NA, nrow(gP))
-    orthologsAdjacent[boghOne2one] = isAdjacent
-    
-    return(orthologsAdjacent)
-}
-
-
-#-----------------------------------------------------------------------
-# get mapping of gene names to enhancer IDs
-#-----------------------------------------------------------------------
-getGenetoEhIDmapping <- function(geneNames, enhancerIDs){
-    
-    stopifnot(length(geneNames) == length(enhancerIDs))
-    
-    # initilize empty list
-    l = list()
-    
-    # iterate over both vectors
-    for (i in seq(length(geneNames))){
-        g = as.character(geneNames[i])
-        e = enhancerIDs[i]
-        # append e to list entry with key g
-        l[[g]] = c(l[[g]], e)
-    }
-    return(l)
 }
 
 #-----------------------------------------------------------------------
@@ -363,20 +191,6 @@ addInGeneSet <- function(genePairs, geneSet, colName){
 }
 
 #-----------------------------------------------------------------------
-# Add mimum evidence category for gene pairs
-#-----------------------------------------------------------------------
-addMinEvidence <- function(genePairs, tssGR, colName="UniProtEvidence"){
-    
-    e1 <- tssGR[genePairs[,1]]$UniProtEvidence
-    e2 <- tssGR[genePairs[,2]]$UniProtEvidence
-    
-    # mimum evidence in UniProt evidence calsses is maximum number (orderd factors)
-    genePairs[,colName] <- mapply(max, e1, e2)
-        
-    return(genePairs)    
-}
-
-#-----------------------------------------------------------------------
 # for a pair of genes, count number of common enhancers
 #-----------------------------------------------------------------------
 getCommonEnhancers <- function(twoGenes, gene2ehID){
@@ -389,13 +203,9 @@ getCommonEnhancers <- function(twoGenes, gene2ehID){
 #-----------------------------------------------------------------------
 addCommonEnhancer <- function(genePair, gene2ehID){
     # add new column with number of common enhancers
-#~     genePair[,"commonEnhancer"] = apply(genePair[,c("HGNC_g1", "HGNC_g2")], 1, getCommonEnhancers, gene2ehID)
     genePair[,"commonEnhancer"] = apply(genePair[,1:2], 1, getCommonEnhancers, gene2ehID)
     return(genePair)
 }
-
-
-
 
 #-----------------------------------------------------------------------
 # add the number of shared enhancers that are upstrem, between, or downstream
@@ -453,17 +263,6 @@ addRelativeEnhancerPosition <- function(genePairs, tssGR, gene2ehID, ehGR, colNa
     
     return(genePairs)
     
-}
-
-#-----------------------------------------------------------------------
-# for a set of gene pairs (in ENSG) add binary vector indicating same annotaion for each annotation column
-#-----------------------------------------------------------------------
-addCommonAnnotation <- function(genePair, tssGR, columns=c("comp", "subcomp")){
-    
-    for (colStr in columns){
-        genePair[,paste0("common_", colStr)] = mcols(tssGR[genePair[,1]])[, colStr] == mcols(tssGR[genePair[,2]])[, colStr]
-    }
-    return(genePair)
 }
 
 #-----------------------------------------------------------------------
@@ -576,34 +375,6 @@ addWithinSubject <- function(query, subject, colName="inRegion"){
 # add column to indicate that two query region overlap the same subset of subject regions.
 # If both query regions do not overlap any subject, FALSE is returned.
 #-----------------------------------------------------------------------
-addSameSubjectSet <- function(genePairs, subject, tssGR, colName="sameSubset"){
-    
-    # compute overlap of all genes with TADs
-    hitsDF <- as.data.frame(findOverlaps(tssGR, subject, type="within"))
-    
-    # get indices of genes in tssGR
-    idx1 <- match(genePairs[,1], names(tssGR))
-    idx2 <- match(genePairs[,2], names(tssGR))
-    
-    # get for each gene the set of TADs that overlap
-    set1 <- lapply(idx1, function(i) hitsDF[hitsDF[,1]==i,2])
-    set2 <- lapply(idx2, function(i) hitsDF[hitsDF[,1]==i,2])
-    
-    # test if sets are equal for each gene in pair
-    commonSubset <- mapply(setequal, set1, set2)
-
-    # if both empty use FALSE
-    commonSubset[sapply(set1, length) == 0 & sapply(set2, length) == 0] <- FALSE
-
-    # add column to gene pairs and return 
-    genePairs[, colName] <- commonSubset
-    return(genePairs)
-}
-
-#-----------------------------------------------------------------------
-# add column to indicate that two query region overlap the same subset of subject regions.
-# If both query regions do not overlap any subject, FALSE is returned.
-#-----------------------------------------------------------------------
 addSubTADmode <- function(genePairs, tadGR, tssGR, colName="subTAD"){
     
     # compute overlap of all genes with TADs
@@ -635,38 +406,6 @@ addSubTADmode <- function(genePairs, tadGR, tssGR, colName="subTAD"){
     # add column to gene pairs and return 
     genePairs[, colName] <- subTADmode
     return(genePairs)
-}
-
-
-
-#-----------------------------------------------------------------------
-# get column to indicate that query lies within at least one subject object
-#-----------------------------------------------------------------------
-getWithinSubject <- function(query, subject){
-    countOverlaps(query, subject, type="within") >= 1
-}
-
-#-----------------------------------------------------------------------
-# make a gene pairs data frame with all gene paris that overlap with the same query region
-#-----------------------------------------------------------------------
-getPairsFromOverlap <- function(queryGR, subjectGR, colNames=c("g1", "g2")){
-    
-    # calculate overlap
-    hit = findOverlaps(queryGR, subjectGR)
-    
-    # convert to list and keep only those grups with at least 2 subjects in it
-    hitList = as.list(hit)
-    hitList = hitList[sapply(hitList, length) >= 2]
-    
-    # get all possible pairs per group
-    pairsID = do.call("rbind", sapply(sapply(hitList, combn, 2), t))
-
-    # convert indexes to names of subject
-    
-    pairDF = data.frame(names(subjectGR)[pairsID[,1]], names(subjectGR)[pairsID[,2]])
-    names(pairDF) = colNames
-    
-    return(pairDF)
 }
 
 #-----------------------------------------------------------------------
@@ -714,103 +453,25 @@ interChromPairMatrix <- function(genePairs, tssGR, symmetric=FALSE){
 
 
 #-----------------------------------------------------------------------
-# shared enhancer number matrix
-#-----------------------------------------------------------------------
-sharedEnhancerMatrix <- function(geneIDs, gene2ehID, geneSymbols=geneIDs){
-
-    n = length(geneIDs)
-    mat = matrix(rep(0, n*n), n, dimnames=list(geneSymbols, geneSymbols))
-    for (i in 1:n){
-    
-        for (j in 1:n){
-            
-            mat[i,j] = getCommonEnhancers(geneIDs[c(i,j)], gene2ehID)
-        }
-    }
-    return(mat)
-}
-
-#-----------------------------------------------------------------------
-# Pairwise linear distance matrix
-#-----------------------------------------------------------------------
-pairwiseDistMatrix <- function(gr, geneSymbols=names(gr)){
-
-    distMat <- outer(start(gr), start(gr), function(x,y) abs(x-y))
-    sameChromMat <- outer(seqnames(gr), seqnames(gr), function(x,y) as.logical(x==y))
-    
-    # set pairs on different chromosomes to NA
-    distMat[!sameChromMat] <- NA
-    dimnames(distMat) <- list(geneSymbols, geneSymbols)
-    return(distMat)
-    
-}
-
-
-#-----------------------------------------------------------------------
-# Pairwise Hi-C contact counts as matrix
-#-----------------------------------------------------------------------
-pairwiseContacstMatrix <- function(exampleGenes, HiClist){
-
-    n = length(exampleGenes)
-    
-    # combine query gr
-    queryGRa = rep(exampleGenes, each=n)
-    queryGRb = rep(exampleGenes, n)
-    
-    contacts = getInteractionsMulti(queryGRa, queryGRb, HiClist)
-    
-    mat = matrix(contacts, n, dimnames=list(exampleGenes$hgnc_symbol, exampleGenes$hgnc_symbol))
-    
-    return(mat)
-}
-
-#-----------------------------------------------------------------------
-# Pairwise Hi-C contact counts as matrix
-#-----------------------------------------------------------------------
-pairwiseContacstMatrixSameChrom <- function(exampleTSS, HiClist){
-    
-    # assume only one chromosome
-    stopifnot(length(unique(seqnames(exampleTSS))) == 1)
-    stopifnot(all(width(exampleTSS) == 1))
-    
-    chr = seqnames(exampleTSS)[1]
-    map = HiClist[[paste0(chr, chr)]]
- 
-    # get indexes of bins in Hi-C map overlapping the query regions
-    idxX = subjectHits(findOverlaps(exampleTSS, x_intervals(map))) 
-    idxY = subjectHits(findOverlaps(exampleTSS, y_intervals(map))) 
-    
-    # query interaction matrix
-    mat = intdata(map)[idxX, idxY]
-
-    return(as.matrix(mat))
-}
-
-
-#-----------------------------------------------------------------------
 # This function returns a logical vector, the elements of which are FALSE, unless there are duplicated values in x, in which case all but one elements are TRUE (for each set of duplicates). The only difference between this function and the duplicated() function is that rather than always returning FALSE for the first instance of a duplicated value, the choice of instance is random.
 # Source: https://amywhiteheadresearch.wordpress.com/2013/01/22/randomly-deleting-duplicate-rows-from-a-dataframe-2/
 #-----------------------------------------------------------------------
-duplicated.random = function(x, incomparables = FALSE, ...) 
-{ 
-     if ( is.vector(x) ) 
-     { 
+duplicated.random = function(x, incomparables = FALSE, ...) { 
+     if ( is.vector(x) ) { 
          permutation = sample(length(x)) 
          x.perm      = x[permutation] 
          result.perm = duplicated(x.perm, incomparables, ...) 
          result      = result.perm[order(permutation)] 
          return(result) 
      } 
-     else if ( is.matrix(x) ) 
-     { 
+     else if ( is.matrix(x) ) { 
          permutation = sample(nrow(x)) 
          x.perm      = x[permutation,] 
          result.perm = duplicated(x.perm, incomparables, ...) 
          result      = result.perm[order(permutation)] 
          return(result) 
      } 
-     else 
-     { 
+     else{ 
          stop(paste("duplicated.random() only supports vectors", 
                 "matrices for now.")) 
      } 
@@ -840,33 +501,6 @@ addHiCfreq <- function(genePairs, tssGR, HiClist, label="HiC", ...){
     }
     return(genePairs)
 }
-#-----------------------------------------------------------------------
-# Test case for function addHiCfreq() according to example in Rao data README.
-#-----------------------------------------------------------------------
-addHiCfreq.test <- function(){
-    # from file: Rao2014/IMR90/50kb_resolution_intrachromosomal/chr1/MAPQGE30/chr1_50kb.RAWobserved
-    #~ 500000  750000  1.0      x-z
-    #~ 550000  750000  4.0      y-z
-    #~ 700000  750000  86.0
-
-
-#~     expectedRawValue <- 5
-#~     expectedNormValue <- 2.70841577
-
-    x <- GRanges("chr1", IRanges(500001, 500001))
-    y <- GRanges("chr1", IRanges(550001, 550001))
-    z <- GRanges("chr1", IRanges(750001, 750001))
-        
-    tssGR.test <- c(x,y,z)
-    names(tssGR.test) <- c("x", "y", "z")
-    
-    gP1 <- data.frame(g1=c("x", "y", "z", "z"), g2=c("z", "z", "x", "y"))
-    gP2 <- data.frame(g1=c("y"), g2=c("z"))
-    
-    gP1 <- addHiCfreq(gP1, tssGR.test, HiClistRaw)
-    gP2 <- addHiCfreq(gP2, tssGR.test, HiClistRaw)
-
-}
 
 
 #-----------------------------------------------------------------------
@@ -879,7 +513,6 @@ addHiCobsExp <- function(genePairs, tssGR, expectedHiCList, resolution, HiClabel
     chroms = seqnames(tssGR[genePairs[,1]])
 
     # iterate over all unique chromosomes (in parallel)
-#~     expValues = lapply(as.character(unique(chroms)), function(chr){
     for (chr in as.character(unique(chroms))){
     
         message(paste("INFO: Query expected contacts for chromosome:", chr))
@@ -942,11 +575,6 @@ addHIPPIE <- function(gP, hippie, colName="HIPPIE"){
     
     gP[,colName] <- score
     return(gP)
-#~     # DEBUG:
-#~     pSym <- c(gP[,"HGNC_g1"], gP[,"HGNC_g2"])
-#~     hSym <- c(hippie[,"symbol1"], hippie[,"symbol2"])
-#~ 
-#~     percentTrue(pSym %in% hSym)
 }
 
 #-----------------------------------------------------------------------
@@ -981,9 +609,6 @@ getCor <- function(gP, expDF){
     cor(x, y, method="pearson")
 
 }
-#getCor(cbind("ENSG00000000003", "ENSG00000000005"), expDF)
-#getCor(cbind(c("ENSG00000000003", "ENSG00000000005"), c("ENSG00000000003", "ENSG00000000005")),expDF)
-#getCor(cbind(c("ENSG00000000003", "ENSG00X00000005"), c("ENSG00000000003", "ENSG00000000005")),expDF)
 
 
 #-----------------------------------------------------------------------
@@ -994,159 +619,6 @@ addCor <- function(gP, expDF, colName="expCor"){
     gP[,colName] = apply(pairsAsChars, 1, getCor, expDF=expDF)
     return(gP)
 }
-
-#-----------------------------------------------------------------------
-# adds mutual exclusivity 
-#-----------------------------------------------------------------------
-addMutExcl <- function(gP, expDF, cutoff=1, colName="expMutExcl"){
-
-    expDFbin <- expDF >= cutoff
-    pairsAsChars = sapply(gP[,1:2], as.character)
-
-    gP[,colName] = apply(pairsAsChars, 1, function(gP){
-        
-        a <- expDFbin[gP[1],]
-        b <- expDFbin[gP[2],]
-        both <- a & b
-        
-    })
-
-#~     gP[,colName] = sapply(1:nrow(gP), function(i) {
-#~         cor(
-#~             x=t(expDF[gP[i,1],]), 
-#~             y=t(expDF[gP[i,2],]), 
-#~             method="pearson")
-#~         })
-    return(gP)
-}
-
-#-----------------------------------------------------------------------
-# adds maximum information coefficient (MIC) or other maximal information-based nonparametric exploration (MINE) statistics (Reshef et al. Science 2011) 
-#-----------------------------------------------------------------------
-addMIC <- function(genePairs, expDF, statistic="MIC", colName=statistic, ...){
-    
-    g1exp = t(expDF[as.character(genePairs[,1]),])
-    g2exp = t(expDF[as.character(genePairs[,2]),])
-    
-    genePairs[,colName] <- sapply(1:nrow(genePairs), function(j) 
-        # check if one of the 
-        if(all(is.na(g1exp[,j])) | all(is.na(g2exp[,j])) ){
-            NA
-        }else{
-            mine(x=g1exp[,j], y=g2exp[,j], ...)[[statistic]]
-        })
-    return(genePairs)
-}
-
-#-----------------------------------------------------------------------
-# makes a huge pdf with many dotplot of pairwise expression comparisons
-#-----------------------------------------------------------------------
-plotAllExp <- function(genePairs, expDF, tssGR, outFile=NA, ...){
-
-    nRow = round(sqrt(nrow(genePairs))) 
-    nCol = round(sqrt(nrow(genePairs))) + 1
-    
-    stopifnot(nRow * nCol >= nrow(genePairs))
-    
-    if (!is.na(outFile)){
-        pdf(outFile, width=3*nCol, height=3*nRow)
-    }
-    par(mfrow=c(nRow,nCol), cex=.7, mar=c(4.1,4.1,1.1,2.1))
-    
-    for (i in 1:nrow(genePairs)){
-        
-        x = t(expDF[as.character(genePairs[i,1]), ])
-        y = t(expDF[as.character(genePairs[i,2]), ])
-        
-        m = c("cor"=cor(x,y), unlist(mine(x,y)))
-        #, collapse=" ")
-        xName = paste0(tssGR[genePairs[i,1]]$hgnc_symbol, " (", genePairs[i,1], ")")
-        yName = paste0(tssGR[genePairs[i,2]]$hgnc_symbol, " (", genePairs[i,2], ")")
-
-        plot(x,y, 
-            xlab=xName, ylab=yName,
-            pch=21, bg="blue", ...)
-        legend("topright", paste0(names(m), "=", signif(m, 2)), bty="n")
-    }
-
-    if (!is.na(outFile)){
-        dev.off()
-    }
-    
-}
-#plotAllExp(cisPairs[which(mic_r2 >= .4),], expDF)
-#plotAllExp(cisPairs[which(mic_r2 >= .4),], expDF, tssGR, "out.test.pdf")
-#plotAllExp(cisPairs[which(mic_r2 >= .25 & r<=0),], expDF, tssGR, "out.test.pdf")
-
-
-#-----------------------------------------------------------------------
-# returns the mutual information for the expression of two input genes
-#-----------------------------------------------------------------------
-getExpMI <- function(gP, expDF){
-    
-    stopifnot(nrow(gP) == 1)
-
-    # check if both genes are contained in expression data set
-    if (gP[1] %in% row.names(expDF) && gP[2] %in% row.names(expDF)) {
-
-        # get expression values of all cells/conditions
-        # this will make a vector of NA's if the gene is not contained in the expression data set    
-        freqs2d = expDF[c(gP[1], gP[2]) ,]
-        
-        # if only zeros in expression vecotrs, return NA as mutual information
-        if (sum(freqs2d) == 0) {
-            return(NA)
-        }
-        
-        # return mutual information between genes in bit units
-        mi.plugin(freqs2d, unit="log2")
-    }else{
-        return(NA)
-    }
-    
-}
-
-#getExpMI(cbind("ENSG00000000003", "ENSG00000000005"), expDF)
-#gP = rbind(c("ENSG00000000003", "ENSG00000000005"), c("ENSG00000000003", "ENSG00000000005"))
-#gP2 = rbind(c("ENSG00000000003", "ENSG00X00000005"), c("ENSG00000000003", "ENSG00000000005"))
-#apply(gP, 1, getExpMI, expDF=expDF)
-#apply(gP2, 1, getExpMI, expDF=expDF)
-
-
-#-----------------------------------------------------------------------
-# adds mutual inforamtion of gene expression for all gene pairs 
-# TODO: improve runtime by precalculating entropy of x and y and compute
-# MI as MI(X,Y) = H(X) + H(Y) - H(X, Y)
-#-----------------------------------------------------------------------
-addExpMI <- function(gp, expDF, colName="expMI"){
-    gp[,colName] = apply(gp[,1:2], 1, getExpMI, expDF=expDF)
-    return(gp)
-}
-
-#-----------------------------------------------------------------------
-# parse matirx-scan output file and creates a table with the number of
-# motif hits per gene (rows) for each motif (columns).
-#-----------------------------------------------------------------------
-parseMatrixScan <- function(matrixScanFile, geneIDs){
-
-    classes <- sapply(read.table(matrixScanFile, nrows = 5, comment.char=c(';'), header=TRUE), class)
-    
-    motifHits = read.delim(matrixScanFile, comment.char=';', header=TRUE, colClasses = classes)
-    
-
-    # initialize zero matrix with to count motif instances per gene promoter
-    motifs = unique(motifHits$ft_name)
-    motifTable = matrix(0, nrow=length(geneIDs), ncol=length(motifs), dimnames=list(geneIDs, motifs))
-    
-    hitGenes = motifHits[,1]
-    hitMotifs = motifHits$ft_name
-    for (i in 1:nrow(motifHits)){
-        motifTable[hitGenes[i],hitMotifs[i]] = motifTable[hitGenes[i],hitMotifs[i]]+1
-    }
-
-    return(data.frame(motifTable))
-}
-#matrixScanFile="results/paralog_regulation/EnsemblGRCh37_paralog_genes.promoters.bed.names.fa.jaspar.matrix-scan.uniquePos"
 
 #-----------------------------------------------------------------------
 # Map genes to one2one orthologs in an other species
@@ -1238,26 +710,6 @@ addOrthologAnnotation <- function(genePairs, orthologsAll, orgStr, tssGR, TAD=NU
     return(genePairs)
 }
 
-
-#-----------------------------------------------------------------------
-# get pairwise information from gene matrix (like promoter contacts from capture Hi-C)
-#-----------------------------------------------------------------------
-getPairwiseMatrixScore <- function(genePairs, M, tssGR, replaceZeroByNA=FALSE){
-    
-    #scores = M[genePairs[,1], genePairs[,2]]
-    idx1 = match(genePairs[,1], id(tssGR))
-    idx2 = match(genePairs[,2], id(tssGR))
-    scores = M[cbind(idx1, idx2)]
-    
-    if (replaceZeroByNA){
-        # For capture C data from Mifsud et al. 2015:
-        # Due to sparse matrix data structure non available pairs will get 0 counts
-        # Since no 0 count pair is in the original data, we can replace all 0 with NA
-        scores[scores==0] <- NA
-    }
-    return(scores)
-}
-
 #-----------------------------------------------------------------------
 # get pairwise information from matrix. Matrix is assumed to have gene names (matching the first two columns of query data.frame) as dimensions names
 #-----------------------------------------------------------------------
@@ -1277,36 +729,6 @@ getPairwiseMatrixScoreByName <- function(genePairs, M, replaceZeroByNA=FALSE){
 }
 
 #-----------------------------------------------------------------------
-# for each gene pair get the gene ID of unique common ortholog genes
-#-----------------------------------------------------------------------
-getUniqueCommonOrthologs <- function(genePairs, orthologsSpecies, orthoGeneCol){
-    
-    # convert gene ID to character
-    genePairs[,1] = as.character(genePairs[,1])
-    genePairs[,2] = as.character(genePairs[,2])
-
-    # iterate over all gene pairs gP
-    commonOrthologsSpecies = apply(genePairs[,1:2], 1, function(gP){
-        
-        # get the set of orthologouse genes to each single gene in the pair
-        ortho1 = orthologsSpecies[unlist(gP[1]) == orthologsSpecies[,1], orthoGeneCol]
-        ortho2 = orthologsSpecies[unlist(gP[2]) == orthologsSpecies[,1], orthoGeneCol]
-        
-        # check if for each gene only one ortholog was found and if they are identical
-        if(length(ortho1)==1 & length(ortho2)==1 & length(intersect(ortho1, ortho2)) == 1){
-            return(ortho1)
-        }else{
-            # if this was not the case return NA
-            return(NA)
-        }
-        
-    })
-    
-    return(commonOrthologsSpecies)
-}
-
-
-#-----------------------------------------------------------------------
 # add flags for commonOrthologs and NotOneToOne
 #-----------------------------------------------------------------------
 addAgeFlags <- function(genePairs, orthologsSpecies, orgStr){    
@@ -1315,140 +737,6 @@ addAgeFlags <- function(genePairs, orthologsSpecies, orgStr){
     return(genePairs)
 }
 
-#-----------------------------------------------------------------------
-# get a boolean vector indicating whether (in case of same strand) the first 
-# gene in the pair is upstream of the second.
-#-----------------------------------------------------------------------
-getFirstUpstream <- function(genePairs, tssGR){
-    
-    g1 = tssGR[genePairs[,1]]
-    g2 = tssGR[genePairs[,2]]
-
-    firstUpstream = (strand(g1) == "+" & strand(g2) == "+" & start(g1) <= start(g2)) | (strand(g1) == "-" & strand(g2) == "-" & start(g1) > start(g2))
-    firstDownstream = (strand(g1) == "+" & strand(g2) == "+" & start(g1) > start(g2)) | (strand(g1) == "-" & strand(g2) == "-" & start(g1) <= start(g2))
-    
-    boolVec = rep(NA, nrow(cisPairs))
-    boolVec[as.logical(firstUpstream)] = TRUE
-    boolVec[as.logical(firstDownstream)] = FALSE
-    return(boolVec)
-}
-
-
-#-----------------------------------------------------------------------
-# get percent identety for both genes
-#-----------------------------------------------------------------------
-getPercentID <- function(g, o, orthologsSpecies, orthoGeneCol= "mmusculus_homolog_ensembl_gene", simCol="mmusculus_homolog_perc_id_r1"){
-    
-    if( is.na(o) ){ 
-        return(NA)
-    }
-    uniqOrtholog = g == orthologsSpecies[,1] & o == orthologsSpecies[,orthoGeneCol]
-    
-    sim = orthologsSpecies[uniqOrtholog, simCol][1]
-
-    return(sim)
-}
-
-#-----------------------------------------------------------------------
-#
-#-----------------------------------------------------------------------
-runOrientationAnalysis <-function(genePairs, tssGR, orthologsSpecies, species, seqSimSuffix="_homolog_perc_id_r1"){
-
-    commonOrthologsSpecies = getUniqueCommonOrthologs(cisPairs, orthologsSpecies, orthoGeneCol=paste0(species, "_homolog_ensembl_gene"))
-    
-    
-    # get similarity of ortholog to first gene in pair
-    g1_orthoSim = unlist(mapply(getPercentID, genePairs[,1], commonOrthologsSpecies, MoreArgs=list(orthologsSpecies=orthologsSpecies, orthoGeneCol= paste0(species, "_homolog_ensembl_gene"), simCol=paste0(species, seqSimSuffix))))
-    
-    g2_orthoSim = unlist(mapply(getPercentID, genePairs[,2], commonOrthologsSpecies, MoreArgs=list(orthologsSpecies=orthologsSpecies, orthoGeneCol= paste0(species, "_homolog_ensembl_gene"), simCol=paste0(species, seqSimSuffix))))
-    
-    
-    # annotate gene paris with the locical label if the first of the pair is upstream of the other
-    firstUpstream = getFirstUpstream(genePairs, tssGR)
-    
-    # get similarity values for upsteam and downstream homolog
-    upstream = ifelse(firstUpstream, g1_orthoSim ,g2_orthoSim)
-    downstream = ifelse(firstUpstream, g2_orthoSim ,g1_orthoSim)
-    
-    # n1 means that the upsteam paralog is more similar to the ortholog
-    upstreamHigher = upstream > downstream
-    
-    # check if upstream or downstream is more similar to ortholog
-    downstreamHigher = upstream < downstream 
-    eqSim = upstream == downstream
-    
-    
-    nPairs = c(
-        "close_pairs"=nrow(genePairs), 
-        "+---same_strand"=sum(genePairs$sameStrand), 
-        "+---common_ortholog"=sum(!is.na(commonOrthologsSpecies)), 
-        "    +---same_strand"=sum(!is.na(commonOrthologsSpecies) & cisPairs$sameStrand), 
-        "        +---equal_sim"=sum(eqSim, na.rm=TRUE), 
-        "        +---upstream_conserved"=sum(upstreamHigher, na.rm=TRUE), 
-        "        +---downstream_conserved"=sum(downstreamHigher, na.rm=TRUE) 
-        )
-    
-    return(list(nPairs, upstream, downstream))
-
-}
-
-########################################################################
-# OLD and unused stuff:
-########################################################################
-
-queryGenePairs <- function(genePairs, g){
-    (g == genePairs[,1]) | (g == genePairs[,2])
-}
-
-#-----------------------------------------------------------------------
-# get only one pair per unique gene by choosing the gene pair with highest 
-# sequence similarity
-#-----------------------------------------------------------------------
-uniquePairPerGeneBySimIteratively <- function(gP, similarity){
-    
-    genePairs = gP
-    genePairs[,1] = as.character(genePairs[,1])
-    genePairs[,2] = as.character(genePairs[,2])
-    
-    # iterate over all genes g 
-    #   get all pairs p_g with gene g
-    #       While size(p_g) > 1:
-                # get a-b pair with highest sim
-                # remove all pars with a or b from p_g
-    
-    # collect final pairs indexes
-    resultPairs = c()
-    
-    for (g in unique(c(genePairs[,1], genePairs[,2]))){
-        
-        PgQuery = queryGenePairs(genePairs, g)
-        
-        #Pg = genePairs[PgQuery,]
-        
-        while(sum(PgQuery) > 1 ){
-            # get minimum of similarity (multiplied by true/false query to get subset of pairs wich involve gene g)
-            sim = similarity
-            sim[!PgQuery] = NA
-            idx = which.min(sim)
-            
-            resultPairs = c(resultPairs, idx)
-            
-            a = genePairs[idx,1]
-            b = genePairs[idx,2]
-            
-            # set pairs that ivolve a and b to false for this query
-            aPairs = queryGenePairs(genePairs, a)
-            bPairs = queryGenePairs(genePairs, b)
-            PgQuery[aPairs | bPairs] = FALSE
-        }
-        
-    }
-    
-    # TODO: finish this one to see fi results differ
-    # Problem: order of gene choice matters. If Pair A-B is choosen to keep pair B-C with potentially higher similarity will be removed.
-    
-    return(uniqPairs)
-}
 
 #-----------------------------------------------------------------------
 # help function to add additional column with zeros as NA to data frame
@@ -1460,7 +748,4 @@ addNoZero <- function(df, cols=c("HiCRaw", "HiC", "HiCobsExp", "captureC_raw", "
     }
     return(df)
 }
-
-
-
 

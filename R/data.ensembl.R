@@ -8,7 +8,6 @@
 # load some useful libraries
 require(stringr)        # for functions like paste0()
 require(GenomicRanges)  # for genomic ranges
-#~ require(GenomicAlignments)  # for summarizeOverlaps function
 require(biomaRt)        # to retrieve human paralogs from Ensembl
 require(plyr)           # count() function
 
@@ -36,9 +35,7 @@ outPrefixDataEnsembl=paste0("results/data/ensembl.data.", VERSION_DATA_ENSEMBL)
 # make directory if not exist already
 dir.create(dirname(outPrefixDataEnsembl), showWarnings = FALSE, recursive=TRUE)
 
-# TODO use makefiel like dependency instead of the USE_LOCAL_DATA_ENSEMBL option
-USE_LOCAL_DATA_ENSEMBL = TRUE
-#~ USE_LOCAL_DATA_ENSEMBL = FALSE
+USE_LOCAL_DATA_ENSEMBL = FALSE
 
 #=======================================================================
 # 1.) Downloads and format data 
@@ -90,35 +87,6 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
     save(orthologsSpeciesList, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.orthologsSpeciesList.RData"))
     
     #-------------------------------------------------------------------
-    # get all exon regions
-    #-------------------------------------------------------------------
-    # get all known, coding exon IDs on chromosome 1-22, X, and Y
-#~     exonIDs = getBM(attributes="ensembl_exon_id", mart=ensemblGRCh37, 
-#~         filters=c("status", "biotype","chromosome_name"), 
-#~         values=list(status="KNOWN", biotype="protein_coding", chromosome_name=c(1:22, "X", "Y")),
-#~         )[,1]
-#~ 
-#~     allExonIDs = getBM(mart=ensemblGRCh37, 
-#~         attributes=c("ensembl_exon_id", "gene_biotype"),
-#~         filters=c("status","chromosome_name"), 
-#~         values=list(status="KNOWN", chromosome_name=c(1:22, "X", "Y")),
-#~         )
-
-#~     exonAttributesStructure = c("ensembl_exon_id", "chromosome_name", "exon_chrom_start", "exon_chrom_end", "rank")
-#~     codingExons = getBM(attributes=exonAttributesStructure, mart=ensemblGRCh37, filters="ensembl_exon_id", values=exonIDs)
-    
-#~     exonAttributesStructure = c("ensembl_exon_id", "chromosome_name", "exon_chrom_start", "exon_chrom_end", "rank", "gene_biotype")
-#~     allExons = getBM(attributes=exonAttributesStructure, mart=ensemblGRCh37, filters="ensembl_exon_id", values=allExonIDs[,1])
-    
-    # get all exons with status KNOWN on chromosome 1-22, X, and Y
-    allExons = getBM(mart=ensemblGRCh37, 
-        attributes=c("ensembl_exon_id", "chromosome_name", "exon_chrom_start", "exon_chrom_end", "strand", "rank", "gene_biotype"), 
-        filters=c("status","chromosome_name"), 
-        values=list(status="KNOWN", chromosome_name=c(1:22, "X", "Y")))
-
-    save(allExons, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.allExons.RData"))
-
-    #-------------------------------------------------------------------
     # get RefSeq ID to ENSG mapping
     #-------------------------------------------------------------------
     refSeqAttributes <- c("refseq_mrna", "ensembl_gene_id")
@@ -153,7 +121,6 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
     
     # save or load downloaded data 
     save(entrezToENSG, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.entrezToENSG.RData"))
-
 
     #-------------------------------------------------------------------
     # Download mouse genes and paralog pairs
@@ -203,34 +170,6 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
     save(paralogPairsDogALL, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogPairsDogALL.RData"))
 
     #-------------------------------------------------------------------
-    # Download gene ids (ENSG) for olfactory receptor genes
-    #-------------------------------------------------------------------
-    orFilters=c("chromosome_name", "go_id")
-    orValues=list(c(1:22, "X", "Y"), OLFACTORY_RECEPTOR_GO)
-    orGenes = getBM(attributes=geneAttributes, mart=ensemblGRCh37, filters=orFilters, values=orValues)
-    save(orGenes, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.orGenes.RData"))    
-
-    #-------------------------------------------------------------------
-    # get UniProt/TrEMBL Accession to ENSG mapping
-    #-------------------------------------------------------------------
-    uniPTrEMBLAttributes <- c("uniprot_sptrembl", "ensembl_gene_id")
-    uniPTrEMBLToEnsgDF = getBM(attributes=uniPTrEMBLAttributes, mart=ensemblGRCh37, 
-        filters="with_uniprotsptrembl", values=TRUE)
-    
-    # save or load downloaded data 
-    save(uniPTrEMBLToEnsgDF, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.uniPTrEMBLToEnsgDF.RData"))
-    
-    # take only unique uniPTrEMBL IDs
-    uniPTrEMBLToEnsgDFuniq <- uniPTrEMBLToEnsgDF[!duplicated(uniPTrEMBLToEnsgDF$uniprot_sptrembl),]
-    
-    # convert data.frame into a named vector
-    uniPTrEMBLToENSG <- uniPTrEMBLToEnsgDFuniq[,2]
-    names(uniPTrEMBLToENSG) <- uniPTrEMBLToEnsgDFuniq[,1]
-    
-    # save or load downloaded data 
-    save(uniPTrEMBLToENSG, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.uniPTrEMBLToENSG.RData"))
-    
-    #-------------------------------------------------------------------
     # get UniProt/SwissProt Accession to ENSG mapping
     #-------------------------------------------------------------------
     uniPSwissAttributes <- c("uniprot_swissprot_accession", "ensembl_gene_id")
@@ -258,16 +197,12 @@ if ( !USE_LOCAL_DATA_ENSEMBL) {
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.allGenes.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogPairsALL.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.orthologsSpeciesList.RData"))
-    load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.allExons.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.refSeqToENSG.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.entrezToENSG.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.allMouseGenes.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogPairsMouseALL.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.allDogGenes.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogPairsDogALL.RData"))
-    load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.orGenes.RData"))
-    load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.uniPTrEMBLToEnsgDF.RData"))
-    load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.uniPTrEMBLToENSG.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.uniPSwissToEnsgDF.RData"))
     load(paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.uniPSwissToEns.RData"))
     message("Finished.")
@@ -311,10 +246,6 @@ tssGR = getTssGRfromENSEMBLGenes(genes, seqInfoRealChrom, colNames=c("hgnc_symbo
 tssGR$gene_size = genes[names(tssGR), "end_position"] - genes[names(tssGR), "start_position"]
 tssGR <- sort(tssGR, ignore.strand=TRUE)
 
-# olfactory receptor genes
-ORids = orGenes$ensembl_gene_id
-ORtssGR = tssGR[names(tssGR) %in% ORids]
-
 #-----------------------------------------------------------------------
 # Convert Mouse and Dog genes to GRanges
 #-----------------------------------------------------------------------
@@ -334,7 +265,9 @@ tssGRmouse$gene_size = genesMouse[names(tssGRmouse), "end_position"] - genesMous
 # make GRanges object for all known prot coding genes
 genesGRmouse = sort(getGenesGR(genesMouse, seqInfoMouse, annotCols=c("external_gene_name")), ignore.strand=TRUE)
 
+#-----------------------------------------------------------------------
 # same for DOG:
+#-----------------------------------------------------------------------
 
 # parse seqInfo object
 seqInfoDog = parseSeqInfo(chromFileDog, genome="canFam3", header=FALSE, filterForReal=TRUE)
@@ -381,115 +314,4 @@ nonParalogsHGNC = genesHGNC[unlist(gene2hgnc[nonParalogs]), "hgnc_symbol"]
 paralogPairsMouse = paralogPairsMouseALL[paralogPairsMouseALL[,1] %in% rownames(genesMouse) & paralogPairsMouseALL[,2] %in% rownames(genesMouse),]
     
 paralogPairsDog = paralogPairsDogALL[paralogPairsDogALL[,1] %in% rownames(genesDog) & paralogPairsDogALL[,2] %in% rownames(genesDog),]
-
-#-----------------------------------------------------------------------
-# convert exons to GRanges objects
-#-----------------------------------------------------------------------
-exonGR = getExonGR(allExons[!duplicated(allExons$ensembl_exon_id),], seqInfo)
-
-#~ codingExonGR = getExonGR(allExons[allExons$gene_biotype == "protein_coding",], seqInfo)
-codingExonGR = exonGR[exonGR$gene_biotype == "protein_coding"]
-
-ncExonGR = exonGR[exonGR$gene_biotype != "protein_coding"]
-# Note, that some non-coding exons might overlap with codig exons
-
-
-#-----------------------------------------------------------------------
-# set of introns and intergenci regions
-#-----------------------------------------------------------------------
-
-# get an Grange with all genic regions without strand information
-unstrandedAllGenesGR = noStrand(allGenesGR)
-
-# get the gaps between the gene ranges as unstranded intergenic ranges
-#~ intergenicGR = gaps(unstrandedGenesGR)
-#~ intergenicGR = intergenicGR[strand(intergenicGR) == "*"]
-
-genomeGR = as(seqInfo,'GRanges')
-intergenicGR = setdiff(genomeGR, reduce(unstrandedAllGenesGR), ignore.strand=TRUE)
-
-# tests
-stopifnot(covBases(allGenesGR)  + covBases(intergenicGR)  == covBases(genomeGR) )
-
-# get intron regions as gaps between exons that are completely contained (within) a gene region
-intronGR = subsetByOverlaps(gaps(exonGR), allGenesGR, type="within", ignore.strand=TRUE)
-
-# this would be an more exclusive VERSION_DATA_ENSEMBL that 
-#intronGR = subsetByOverlaps(filterForNoStrand(gaps(noStrand(exonGR))), unstrandedAllGenesGR, type="within")
-
-#~ intronGR = setdiff(allGenesGR, reduce(exonGR, ignore.strand=TRUE), ignore.strand=TRUE)
-
-#otherGenicGR = setdiff(reduce(unstrandedAllGenesGR, ignore.strand=TRUE), reduce(noStrand(c(exonGR[,NULL], intronGR))))
-
-# tests
-#stopifnot( covBases(intronGR)  + covBases(exonGR) + covBases(otherGenicGR)  == covBases(allGenesGR) )
-
-#-----------------------------------------------------------------------
-# set of non-coding RNAs
-#-----------------------------------------------------------------------
-ncRNAs = allGenes[allGenes$gene_biotype %in% c("lincRNA","miRNA","rRNA"),]
-ncRNAsUNIQ = ncRNAs[!duplicated(ncRNAs$ensembl_gene_id),]
-# convert it GRanges object
-ncRNAsGR = GRanges(
-        paste0("chr", ncRNAsUNIQ$chromosome_name),
-        IRanges(ncRNAsUNIQ$start_position, ncRNAsUNIQ$end_position),
-        strand=ifelse(ncRNAsUNIQ$strand == 1, "+", "-"),
-        ncRNAsUNIQ[,c("hgnc_symbol", "status", "gene_biotype")],
-        seqinfo=seqInfo
-    )
-names(ncRNAsGR) <- ncRNAsUNIQ$ensembl_gene_id
-
-# do the same for only the lincRNAs
-lincRNAs = allGenes[allGenes$gene_biotype == "lincRNA",]
-lincRNAsUNIQ = lincRNAs[!duplicated(lincRNAs$ensembl_gene_id),]
-
-# convert it GRanges object
-lincRNAsGR = GRanges(
-        paste0("chr", lincRNAsUNIQ$chromosome_name),
-        IRanges(lincRNAsUNIQ$start_position, lincRNAsUNIQ$end_position),
-        strand=ifelse(lincRNAsUNIQ$strand == 1, "+", "-"),
-        lincRNAsUNIQ[,c("hgnc_symbol", "status", "gene_biotype")],
-        seqinfo=seqInfo
-    )
-names(lincRNAsGR) <- lincRNAsUNIQ$ensembl_gene_id
-
-#-----------------------------------------------------------------------
-# set of all non-protein-coding genes
-#-----------------------------------------------------------------------
-npc = allGenes[allGenes$gene_biotype != "protein_coding",]
-npcUNIQ = npc[!duplicated(npc$ensembl_gene_id),]
-# convert it GRanges object
-npcGR = GRanges(
-        paste0("chr", npcUNIQ$chromosome_name),
-        IRanges(npcUNIQ$start_position, npcUNIQ$end_position),
-        strand=ifelse(npcUNIQ$strand == 1, "+", "-"),
-        npcUNIQ[,c("hgnc_symbol", "status", "gene_biotype")],
-        seqinfo=seqInfo
-    )
-names(npcGR) <- npcUNIQ$ensembl_gene_id
-
-#=======================================================================
-# Filter for unique non-overlapping pairs and map to UniProt symbols
-#=======================================================================
-paralogsUniProt <- uniPSwissToEnsgDF[uniPSwissToEnsgDF$ensembl_gene_id %in% paralogs,]
-
-
-#=======================================================================
-# Write out some data as plain text file
-#=======================================================================
-if ( !USE_LOCAL_DATA_ENSEMBL) {
-    write.table(paralogsUniProt, col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".ENSEMBL_GRCh37.paralogsUniProt.txt"), sep="\t", quote=FALSE)
-    
-    countGenes = table(paralogPairs[,1])
-    
-    paralogTable = data.frame(Ensembl_gene_ID=paralogs, gene_size=tssGR[paralogs]$gene_size, n_paralogs=countGenes[paralogs])
-    nonParalogTable = data.frame(Ensembl_gene_ID=nonParalogs, gene_size=tssGR[nonParalogs]$gene_size, n_paralogs=countGenes[nonParalogs])
-    
-    write.table(paralogTable, col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".ENSG_size_copies.paralogs.txt"), sep="\t", quote=FALSE)
-    
-    write.table(nonParalogTable, col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".ENSG_size_copies.nonParalogs.txt"), sep="\t", quote=FALSE)
-    
-    write.table(orthologsSpeciesList[[1]], col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".orthologs_", names(orthologsSpeciesList)[1], "_human.txt"), sep="\t", quote=FALSE)
-    write.table(orthologsSpeciesList[[2]], col.names=TRUE, row.names=FALSE, file=paste0(outPrefixDataEnsembl, ".orthologs_", names(orthologsSpeciesList)[2], "_human.txt"), sep="\t", quote=FALSE)
-}
 

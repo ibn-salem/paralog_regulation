@@ -23,7 +23,7 @@ CAPTURC_FILE="data/Mifsud2015/TS5_GM12878_promoter-promoter_significant_interact
 
 outPrefixDataCaptureC=paste0("results/data/captureC.Mifsud2015.", VERSION_DATA_CAPTUREHIC)
 
-USE_LOCAL_DATA_CAPTUREHIC = TRUE
+USE_LOCAL_DATA_CAPTUREHIC = FALSE
 
 # make directory if not exist already
 dir.create(dirname(outPrefixDataCaptureC), showWarnings = FALSE)

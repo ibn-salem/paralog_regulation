@@ -71,24 +71,19 @@ COL_ORTHO = c(brewer.pal(12, "Paired")[5], brewer.pal(8, "Pastel2")[8])
 COL_SPECIES = brewer.pal(8, "Accent")[1:2]
 COL_STRAND = brewer.pal(8, "Pastel1")[2:1]
 COL_AGE = brewer.pal(9, "YlOrRd")[c(6,9)]
-COL_AGE_LEVELS <- terrain_hcl(13)
 COL_EH_POS=brewer.pal(9, "Set3")[c(5,9,6)]
-#~ COL_COMP=c(AA="#92AC51", AB="#F2ED98", BB="#B6534D")
-#~ COL_COMP=c("#92AC51","#F2ED98","#B6534D", "#DFDFDF") # AA, AB, BB, <NA>
-#~ COL_COMP=c("#92AC51","#B6534D","#F2ED98", "#DFDFDF") # AA, BB, AB, <NA>
 COL_COMP=c("#92AC51","#F2ED98","#B6534D", "#DFDFDF") # AA, BB, AB, <NA>
 
 COL_COMP_REG=brewer.pal(12, "Paired")[c(8,2,9,7,1,11)]
 names(COL_COMP_REG) <- c("A/A_REG", "B/B_REG", "DIF_REG", "AA", "BB", "A/B")
 #-----------------------------------------------------------------------
-# Parameters for data loading
+# Parameters for data loading from image files
 #-----------------------------------------------------------------------
 
 # use local data or downlaod data from ensemble
-USE_LOCAL_HIC = TRUE
-#~ N_CPUS=20
-LOAD_INPUT_DATA=TRUE
-LOAD_PAIRS=TRUE
+USE_LOCAL_HIC = FALSE
+LOAD_INPUT_DATA=FALSE
+LOAD_PAIRS=FALSE
 
 #-----------------------------------------------------------------------
 # Parameters critical to the analysis
@@ -97,10 +92,8 @@ LOAD_PAIRS=TRUE
 # number of random permutations of whole data sets
 N_RAND=10            
 SELECT_OLD_PAIRS=FALSE
-#~ SELECT_OLD_PAIRS=TRUE
 
 # number of bins for distance density estimation as parameter to adjust sampling resolution
-N_SAMPLING_BIN <- 20
 RANDOM_SEED=13521
 
 MAX_DIST=10^6

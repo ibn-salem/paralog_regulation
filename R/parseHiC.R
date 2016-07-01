@@ -36,25 +36,6 @@ getBinGR <- function(chr, resolution, seqInfo){
 
 
 #-----------------------------------------------------------------------
-# write GRange object in bed format to output file
-#-----------------------------------------------------------------------
-writeGRtoBED <- function(gr, outFile){
-    
-    options("scipen"=999)
-    df <- data.frame(seqnames=seqnames(gr),
-      starts=start(gr)-1,
-      ends=end(gr),
-      names=gr$names,
-      scores=c(rep(".", length(gr))),
-      strands=strand(gr))
-    
-    write.table(df, file=outFile, quote=FALSE, sep="\t", row.names=FALSE, col.names=FALSE)
-    options("scipen"=0)
-    
-}
-
-
-#-----------------------------------------------------------------------
 # rewritten function from HiTC package (See HiTC:::ImportC)
 #-----------------------------------------------------------------------
 myImportC <- function (con, binGR) {
@@ -609,29 +590,6 @@ parseDomainsRao <- function(inFile, disjoin=TRUE, ...){
 }
 
 #-----------------------------------------------------------------------
-# parse loops from Rao et al 2015 as two GRange object.
-#-----------------------------------------------------------------------
-parseLoopsRao <- function(inFile, ...){
-
-    # parse IMR90 domains from Rao et al 2014:
-    raoDF = read.delim(inFile)
-    chr = paste0("chr", raoDF$chr1)
-
-    # substract 1 bp from down coordinate to have inclusive interval ranges    
-    upAnchor = GRanges(chr, IRanges(raoDF[,"x1"], raoDF[,"x2"]-1), ...)
-    downAnchor = GRanges(chr, IRanges(raoDF[,"y1"], raoDF[,"y2"]-1), ...)
-    
-    # define and add annotations:
-    annotUP = c("o", "e_bl",  "e_donut", "e_h", "e_v", "fdr_bl", "fdr_donut", "fdr_h", "fdr_v", "num_collapsed", "centroid1", "centroid2", "radius", "motif_x1", "motif_x2", "sequence_1", "orientation_1", "uniqueness_1")
-    annotDOWN = c("motif_y1", "motif_y2", "sequence2", "orientation_2", "uniqueness_2")
-
-    mcols(upAnchor) = raoDF[,annotUP]
-    mcols(downAnchor) = raoDF[,annotDOWN]
-
-    return(list(upAnchor, downAnchor))
-}
-
-#-----------------------------------------------------------------------
 # parse TADs from excel sheed provided as sup. table by Rudan et al. 2015
 #-----------------------------------------------------------------------
 parseRudanTADs <- function(inFile, disjoin=TRUE, sheet=1, ...){
@@ -652,60 +610,3 @@ parseRudanTADs <- function(inFile, disjoin=TRUE, sheet=1, ...){
     return(gr)
 
 }
-
-
-#-----------------------------------------------------------------------
-# get the TAD boundareis as GRanges object from input TADs
-# They are here defined as regions between TADs of some maximal size.
-#-----------------------------------------------------------------------
-getBoundariesFromDisjoinedTAD <- function(tadGR, maxSize=4*10^5){
-    
-    # assume non-overlaping input TADs
-    stopifnot(isDisjoint(tadGR))
-
-    #boundaries <- gaps(tadGR)
-    boundaries <- gaps(resize(tadGR, width=width(tadGR)-1, ignore.strand=TRUE))
-    boundaries <- boundaries[width(boundaries) <= maxSize]
-    return(boundaries)
-}
-
-#-----------------------------------------------------------------------
-# get the TAD boundareis as GRanges object from input TADs
-# They are here defined as regions between TADs of some maximal size.
-#-----------------------------------------------------------------------
-getNonOverlappingBoundaries <- function(tadGR, min.gapwidth=1){
-    
-    # get regions around start and end pints of TADs
-    borders = c(
-        resize(tadGR, width=1, fix="start"),
-        resize(tadGR, width=1, fix="end")
-    )
-    
-    # remove overlapping (or nearby) boundaries
-    mergedBoundaries = reduce(borders, min.gapwidth=min.gapwidth)
-    
-    resize(mergedBoundaries, width=1, fix="center")
-    
-}
-
-#-----------------------------------------------------------------------
-# get conserved TAD boundaries
-#-----------------------------------------------------------------------
-conservedBoundaries <- function(boundaryList, min.gapwidth=1){
-    
-    # make GRange object of all boundaries in all cell types
-    allBoundaries = unlist(GRangesList(boundaryList))
-    
-    # reduce the set to non-overlapping ranges
-    redBoundaries = reduce(allBoundaries, min.gapwidth=min.gapwidth)
-    
-    # count for each boundary the number of data sets wich supports (overlap) it
-    counts = countOverlaps(redBoundaries, GRangesList(boundaryList))
-    
-    # add the counts as "conservation" column to the set of all reduced boundaries
-    redBoundaries$conservation = counts
-    
-    return(redBoundaries)
-}
-
-
