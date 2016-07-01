@@ -1,7 +1,7 @@
 #!/usr/bin/Rscript
 #=======================================================================
 #
-#   Check for sequence conservation in human TADs
+#   Download and format genes and paralog gene pairs from ENSEMBL.org
 #
 #=======================================================================
 
