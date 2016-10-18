@@ -1,6 +1,8 @@
 # paralog_regulation
 
-This repository contains the source code for all analysis in the study Ibn-Salem et al. 2016, "Co-regulation of paralog genes in the three-dimensional chromatin architecture" (in revision).
+This repository contains the source code for all analysis in the study 
+Ibn-Salem J, Muro EM, Andrade-Navarro MA. Co-regulation of paralog genes in the three-dimensional chromatin architecture. Nucleic Acids Res. 2016 Sep 14. pii: gkw813.
+[http://nar.oxfordjournals.org/content/early/2016/09/14/nar.gkw813](http://nar.oxfordjournals.org/content/early/2016/09/14/nar.gkw813)
 
 The following documentation guides through all steps including downloading of external source data, retrieving paralog genes from ENSEMBL, filtering, annotation, and running all analysis.
 
