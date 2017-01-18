@@ -1193,11 +1193,12 @@ for (HiCcol in c("HiC", "HiCNoZero", "captureC_raw", "captureC_rawNoZero")){
         p = ggplot(subDF, aes_string(x="group", y=HiCcol, color="group")) + 
             geom_boxplot(lwd=1.5) + scale_y_log10() + annotation_logticks(sides="l") +
             scale_color_manual(values=COL, guide_legend(title = "")) +
-            theme_bw() + theme(text = element_text(size=20), legend.position="none") + 
+            theme_bw() + theme(text = element_text(size=20), legend.position="none", axis.text.x=element_text(angle = 45, hjust = 1)) + 
             guides(fill=guide_legend(title="")) +
-            labs(y=HiClab, x="", title=paste0("p = ", signif(ws.test$p.value, 3))) +
-            scale_x_discrete(labels=xlabels )
-        ggsave(p, file=paste0(outPrefix, ".", subName, ".", HiCcol, ".ggboxplot.pdf"), width=3.5)    
+            labs(y=HiClab, x="", title=paste0("p = ", signif(ws.test$p.value, 3))) 
+        ggsave(p, file=paste0(outPrefix, ".", subName, ".", HiCcol, ".ggboxplot.noLables.pdf"), width=3.5)    
+		p <- p + scale_x_discrete(labels=xlabels) + theme(axis.text.x=element_text(angle = 0, hjust = .5))
+        ggsave(p, file=paste0(outPrefix, ".", subName, ".", HiCcol, ".ggboxplot.withLables.pdf"), width=3.5)    
     
         # contacts by group but with at least 100kb distance pairs:
         for (D in c(10, 100)){
@@ -1521,9 +1522,12 @@ for (HiCcol in c("ortholog_HiC", "ortholog_HiCnorm", "ortholog_HiCNoZero", "orth
             scale_color_manual(values=COL_ORTHO) +
             theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position="none") + 
             labs(y="Hi-C contacts of orthologs", x="")  +
-            geom_text(aes(label=paste0("p=",signif(p,2)), x=1.5, y=max(subDF[,HiCcol], na.rm=TRUE)), size=5, data=pvalDF) +
-            geom_text(aes(label=paste0("n=",n, "\nmed=", signif(med,3), "\navg=", signif(avg,3)),  y=min(subDF[,HiCcol], na.rm=TRUE)), vjust = -.1, data=summaryDF)
-        ggsave(p, file=paste0(outPrefix, ".", subName, ".", HiCcol, ".by_group.boxplot.pdf"), width=3.5, height=7)
+            geom_text(aes(label=paste0("p=",signif(p,2)), x=1.5, y=max(subDF[,HiCcol], na.rm=TRUE)), size=5, data=pvalDF)
+            
+        
+        ggsave(p, file=paste0(outPrefix, ".", subName, ".", HiCcol, ".by_group.boxplot.withLables.pdf"), width=3.5, height=7)
+        p <- p + geom_text(aes(label=paste0("n=",n, "\nmed=", signif(med,3), "\navg=", signif(avg,3)),  y=min(subDF[,HiCcol], na.rm=TRUE)), vjust = -.1, data=summaryDF)
+        ggsave(p, file=paste0(outPrefix, ".", subName, ".", HiCcol, ".by_group.boxplot.noLables.pdf"), width=3.5, height=7)
     
     }
     
@@ -1852,20 +1856,24 @@ freqDF <- ddply(dc, .(group), summarize,
 allCompP <- fisher.test(subDF$group, subDF$common_comp)$p.value
 allSubCompP <- fisher.test(subDF$group, subDF$common_subcomp)$p.value
 
+
 p <- ggplot(freqDF, aes(x=group, y=meanPercentComp, fill=group)) +
     geom_errorbar(aes(ymax = meanPercentComp + sdPercentComp , ymin=meanPercentComp - sdPercentComp), width=.25) +
     geom_bar(stat="identity", color="black") + 
+    geom_text(aes(label=signif(meanPercentComp, 3)), vjust=1.5, size=7) + 
     theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position = "none") + 
-    scale_fill_manual(values=COL) + ylab("Same A/B-compartment [%]") + xlab("") + ggtitle(paste0("p=", signif(allCompP,3))) +
-    geom_text(aes(label=signif(meanPercentComp, 3)), vjust=1.5, size=5)
+    scale_fill_manual(values=COL) + ylab("Same A/B-compartment [%]") + xlab("") + ggtitle(paste0("p=", signif(allCompP,3)))    
+ggsave(paste0(outPrefix,".common_compartment.noLables.pdf"), p, w=3.5)
 ggsave(paste0(outPrefix,".common_compartment.pdf"), p, w=3.5)
 
 p <- ggplot(freqDF, aes(x=group, y=meanPercentSubComp, fill=group)) +
     geom_errorbar(aes(ymax = meanPercentSubComp + sdPercentSubComp , ymin=meanPercentSubComp - sdPercentSubComp), width=.25) +
     geom_bar(stat="identity", color="black") + 
     theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position = "none") + 
-    scale_fill_manual(values=COL) + ylab("Same sub-compartment [%]") + xlab("") + ggtitle(paste0("p=", signif(allCompP,3))) +
-    geom_text(aes(label=signif(meanPercentSubComp, 3)), vjust=1.5, size=5)
+    scale_fill_manual(values=COL) + ylab("Same sub-compartment [%]") + xlab("") + ggtitle(paste0("p=", signif(allSubCompP <- fisher.test(subDF$group, subDF$common_subcomp)$p.value
+,3))) +
+    geom_text(aes(label=signif(meanPercentSubComp, 3)), vjust=1.5, size=7)
+ggsave(paste0(outPrefix,".common_subcompartment.noLables.pdf"), p, w=3.5)
 ggsave(paste0(outPrefix,".common_subcompartment.pdf"), p, w=3.5)
 
 #=======================================================================

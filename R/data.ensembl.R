@@ -35,7 +35,7 @@ outPrefixDataEnsembl=paste0("results/data/ensembl.data.", VERSION_DATA_ENSEMBL)
 # make directory if not exist already
 dir.create(dirname(outPrefixDataEnsembl), showWarnings = FALSE, recursive=TRUE)
 
-USE_LOCAL_DATA_ENSEMBL = FALSE
+USE_LOCAL_DATA_ENSEMBL = TRUE
 
 #=======================================================================
 # 1.) Downloads and format data 

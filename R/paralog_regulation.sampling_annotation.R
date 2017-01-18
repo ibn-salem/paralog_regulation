@@ -22,7 +22,7 @@ require(BiocParallel)   # for parallel computing
 
 #~ args <- commandArgs(trailingOnly = TRUE)
 #~ PARAM_SCRIPT=args[1]
-PARAM_SCRIPT="R/paralog_regulation.param.v16.R"
+PARAM_SCRIPT="R/paralog_regulation.param.R"
 
 message(paste("INFO: Load parameter from this script:", PARAM_SCRIPT))
 print(PARAM_SCRIPT)
@@ -52,7 +52,11 @@ source("R/parseHiC.R")
 # load ensemble data sets of genes and paralog pairs
 source("R/data.ensembl.R")     # load ensambl data
 source("R/data.expression.R")  # load expression data from EBI expression atlas
+source("R/data.cohesinKO.R")  # load cohesin KO expression data
+# combine expression data sets into one list:
+
 source("R/data.captureHiC.R")  # load capture Hi-C data between promoters from Mifsud et al. 2015
+
 
 
 if (!LOAD_PAIRS) {
@@ -97,6 +101,8 @@ if (!LOAD_PAIRS) {
             stableTADs,
             DixonTADs
         )
+        
+        allBoundaries <- lapply(allTADs, getBoundaries)
         
         message("INFO: Finshed parsing of TADs.")
         
@@ -221,6 +227,10 @@ if (!LOAD_PAIRS) {
     
     # get only a unique pair order (one of A-B, B-A) form the unique pairs
     paralogPairsUniq = uniquePair(paralogPairsUniqPnonOVLUniqG)
+
+    # write unique paralog pairs per gene to output file:
+    write.table(paralogPairsUniq, file=paste0(outPrefix, ".paralog_pairs.paralogPairsUniq.txt"),
+        sep="\t", quote=FALSE, col.names=TRUE, row.names=FALSE)
     
     # subset of paralog pairs that are located on the same chromosome
     allCisPairs = getCisPairs(paralogPairsUniq, tssGR)
@@ -252,8 +262,6 @@ if (!LOAD_PAIRS) {
     # expDFlist is already loaded in the script "R/data.expression.R"
     allCisPairs = addPairExp(allCisPairs, expDFlist[["ENCODE_cell_lines"]], expCol="IMR_90", label="exp_IMR90")
     
-    nExp = length(expDFlist)
-    
     # add pairwise correlations of gene expression over all tissues
     for (expName in names(expDFlist)) {
         
@@ -262,6 +270,7 @@ if (!LOAD_PAIRS) {
         
         allCisPairs = addCor(allCisPairs, expDF, colName=paste0(expName, "_expCor"))
     }
+
     
     # add same TAD annotation
     
@@ -269,13 +278,18 @@ if (!LOAD_PAIRS) {
     allCisPairsGR = getPairAsGR(allCisPairs, tssGR)
     
     for(tadName in names(allTADs)){
-        message(paste("INFO: Compute overlap with TADs from:", tadName))
+        message(paste("INFO: Compute overlap with TADs and boundaries from:", tadName))
         # co-occurance within the same domain
         allCisPairsGR = addWithinSubject(allCisPairsGR, allTADs[[tadName]], tadName)
+        
+        # separated by a TAD boundary?
+		separated <- countOverlaps(allCisPairsGR, allBoundaries[[tadName]]) >= 1
+        mcols(allCisPairsGR)[, paste0("Boundary_", tadName)] <- separated
     }
   
     # assign annotation in GRanges object to gene pair data.frames
     allCisPairs[,names(allTADs)] <- data.frame( mcols(allCisPairsGR)[, names(allTADs)] )
+    allCisPairs[,paste0("Boundary_", names(allTADs))] <- data.frame( mcols(allCisPairsGR)[, paste0("Boundary_", names(allTADs))] )
 
     for(tadName in names(allTADs)){
         message(paste("INFO: Compute common subset of overallping TADs from:", tadName))
@@ -515,7 +529,7 @@ if (!LOAD_PAIRS) {
             sampPairs[[j]] <- bplapply(sampPairs[[j]], addCor, expDF, colName=paste0(expName, "_expCor"))
             Sys.sleep(3) # hack to fix problems with bplapply on MOGON
         }
-        
+                
         # save temp
         #~ save.image(paste0(WORKIMAGE_FILE, ".sampling_and_after_expression_annotation.Rdata"))
         
@@ -544,7 +558,16 @@ if (!LOAD_PAIRS) {
             # co-occurance within the same domain
             gplGR = bplapply(gplGR, addWithinSubject, allTADs[[tadName]], tadName)
             Sys.sleep(3) # hack to fix problems with bplapply on MOGON
-            
+
+			# separated by a TAD boundary?
+            gplGR = bplapply(gplGR, function(gr){
+
+					separated <- countOverlaps(gr, allBoundaries[[tadName]]) >= 1
+			        mcols(gr)[, paste0("Boundary_", tadName)] <- separated
+					return(gr)
+				})
+            Sys.sleep(3) # hack to fix problems with bplapply on MOGON
+
             sampPairs[[j]] <- bplapply(sampPairs[[j]], addSubTADmode, allTADs[[tadName]], tssGR, paste0(tadName, "_subTAD"))
             Sys.sleep(3) # hack to fix problems with bplapply on MOGON
         }
@@ -552,6 +575,7 @@ if (!LOAD_PAIRS) {
         # assign annotation in GRanges object to gene pair data.frames
         for (i in seq(N_RAND)){
             sampPairs[[j]][[i]][,names(allTADs)] <- data.frame( mcols(gplGR[[i]])[,names(allTADs)] )
+            sampPairs[[j]][[i]][, paste0("Boundary_", tadName)] <- data.frame( mcols(gplGR[[i]])[, paste0("Boundary_", tadName)] )
         }
                 
         # Adds Hi-C contact frequencies to a gene pair data set

@@ -603,7 +603,7 @@ mergedCounts = merge(
 names(mergedCounts) = c("count", "paralogs", "sampled")
 
 # plot distribution of number of enhancers
-pdf(paste0(outPrefix, ".paralogPairs.common_enhancer.barplot.pdf"))
+pdf(paste0(outPrefix, ".paralogPairs.common_enhancer.barplot.noLables.pdf"))
 
     maxCount = 4
     countTab = mergedCounts[seq(maxCount+1),]
@@ -616,7 +616,7 @@ pdf(paste0(outPrefix, ".paralogPairs.common_enhancer.barplot.pdf"))
         beside=TRUE, col=COL, ylim=c(0,100),
         main=paste("Shared enhancers"),
         xlab="Number of shared enhancers", ylab="%")
-    text(bp, height, signif(height,2), pos=3)
+    text(bp, height, signif(height,2), pos=3, cex=.8)
     legend("topright", legend=c("Paralog pairs", "Sampled pairs"), fill=COL)
 dev.off()
 
@@ -635,7 +635,7 @@ sampPercent = sapply(sampHasShared, percentTrue)
 heights = c(paraPercent, mean(sampPercent, na.rm=TRUE))
 sdSamp = sd(sapply(sampHasShared, percentTrue), na.rm=TRUE)
 
-pdf(paste0(outPrefix, ".paralogPairs.has_shared_enhancer.barplot.pdf"), 3.5, 7)
+pdf(paste0(outPrefix, ".paralogPairs.has_shared_enhancer.barplot.noLables.pdf"), 3.5, 7)
 
     par(cex=1.5, lwd=2)
     ymax = max(heights) + sdSamp + .2*max(heights)
@@ -1141,10 +1141,11 @@ p <- ggplot(freqDF, aes(x=group, y=avgPercent)) +
     facet_grid(.~species) + 
     theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position="none") + scale_fill_manual(values=COL) + 
     ylab("Gene pairs in same TAD [%]") + xlab("") +
-    geom_text(aes(label=paste0(signif(avgPercent, 3), "%")), vjust=1.25, size=5) +
+    geom_text(aes(label=signif(avgPercent, 3)), vjust=1.25, size=5) +
     geom_text(aes(label=paste0("p=",signif(p,2)), x=1.5, y=1.1*max(freqDF$avgPercent, na.rm=TRUE)), size=5, data=pvalDF)
     
-ggsave(p, file=paste0(outPrefix, ".close.TAD_by_group_and_species.barplot.pdf"), width=3.5)    
+#~ ggsave(p, file=paste0(outPrefix, ".close.TAD_by_group_and_species.barplot_noLabels.pdf"), width=3.5)    
+ggsave(p, file=paste0(outPrefix, ".close.TAD_by_group_and_species.barplot.noLables.pdf"), width=3.5)    
 
 #-----------------------------------------------------------------------
 # Analyse HiC ontact frequencies
@@ -1232,11 +1233,14 @@ for (HiCcol in HiCcolumnsSpecies ) {
         scale_color_manual(values=COL, guide_legend(title = "")) +
         theme_bw() + theme(text = element_text(size=20), axis.text.x=element_text(angle = 45, hjust = 1), legend.position="none") + 
         labs(y=HiClab, x="") +
-        geom_text(aes(label=paste0("p=",signif(p,2)), x=1.5, y=1.1*max(subDF[,HiCcol], na.rm=TRUE)), size=5, data=pvalDF) +
-#~         geom_text(aes(label=paste0("n=",n, "\nmed=", signif(med,3), "\navg=", signif(avg,3)),  y=min(subDF[,HiCcol], na.rm=TRUE)), vjust = -.1, data=summaryDF)
-        geom_text(aes(label=paste0("n=",n),  y=min(subDF[,HiCcol], na.rm=TRUE)), vjust = .1, data=summaryDF)
+        geom_text(aes(label=paste0("p=",signif(p,2)), x=1.5, y=1.1*max(subDF[,HiCcol], na.rm=TRUE)), size=5, data=pvalDF)
+        
+#~         geom_text(aes(label=paste0("n=",n),  y=min(subDF[,HiCcol], na.rm=TRUE)), vjust = .1, data=summaryDF)
     
-    ggsave(p, file=paste0(outPrefix, ".distal.", HiCcol, ".by_group_and_species.ggboxplot.pdf"), width=3.5)
+    ggsave(p, file=paste0(outPrefix, ".distal.", HiCcol, ".by_group_and_species.ggboxplot.noLable.pdf"), width=3.5)
+    
+    p <- p + geom_text(aes(label=paste0("n=",n, "\nmed=", signif(med,3), "\navg=", signif(avg,3)),  y=min(subDF[,HiCcol], na.rm=TRUE)), vjust = -.1, data=summaryDF)
+    ggsave(p, file=paste0(outPrefix, ".distal.", HiCcol, ".by_group_and_species.ggboxplot.withLabel.pdf"), width=3.5)
 
 }
 

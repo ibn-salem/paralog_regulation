@@ -39,6 +39,7 @@ wget -P canFam3 http://hgdownload.cse.ucsc.edu/goldenPath/canFam3/bigZips/canFam
 mkdir -p UCSC
 wget -P UCSC http://hgdownload.cse.ucsc.edu/goldenPath/hg19/liftOver/hg19ToHg18.over.chain.gz
 wget -P UCSC http://hgdownload.cse.ucsc.edu/goldenPath/hg18/liftOver/hg18ToHg19.over.chain.gz
+wget -P UCSC http://hgdownload.cse.ucsc.edu/goldenPath/mm9/liftOver/mm9ToMm10.over.chain.gz
 gunzip UCSC/*.gz
 
 # download liftOver tool from UCSC:
@@ -75,7 +76,9 @@ wget -P Rao2014 ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE63nnn/GSE63525/suppl/GS
 gunzip Rao2014/*bed.gz
 
 
-RAO_CELLS="GM12878_primary+replicate HMEC HUVEC HeLa IMR90 K562 KBM7 NHEK"
+#~ RAO_CELLS="GM12878_primary+replicate HMEC HUVEC HeLa IMR90 K562 KBM7 NHEK"
+RAO_CELLS="GM12878_primary+replicate HMEC HUVEC HeLa IMR90 K562 KBM7 NHEK CH12-LX"
+
 
 for CELL in ${RAO_CELLS} ; do
     # download
@@ -85,8 +88,27 @@ for CELL in ${RAO_CELLS} ; do
     gunzip Rao2014/GSE63525_${CELL}_Arrowhead_domainlist.txt.gz
         
     # re-format TADs into bed file
-    tail -n +2 Rao2014/GSE63525_${CELL}_Arrowhead_domainlist.txt |cut -f 1-3 | sed -e 's/^/chr/' > Rao2014/GSE63525_${CELL}_Arrowhead_domainlist.txt.bed 
+	if [ "$CELL" == "CH12-LX" ] 
+	then		
+	    tail -n +2 Rao2014/GSE63525_${CELL}_Arrowhead_domainlist.txt \
+			|cut -f 1-3 \
+			> Rao2014/GSE63525_${CELL}_Arrowhead_domainlist.txt.bed 
+	else
+	    tail -n +2 Rao2014/GSE63525_${CELL}_Arrowhead_domainlist.txt \
+			|cut -f 1-3 \
+			| sed -e 's/^/chr/' \
+			> Rao2014/GSE63525_${CELL}_Arrowhead_domainlist.txt.bed 
+	fi
+	
 done
+
+# convert mouse domains from mm9 to mm10 assembly
+${BIN}/liftOver \
+	Rao2014/GSE63525_CH12-LX_Arrowhead_domainlist.txt.bed  \
+	UCSC/mm9ToMm10.over.chain \
+	Rao2014/GSE63525_CH12-LX_Arrowhead_domainlist.txt.bed.mm9.bed.mm10.bed \
+	Rao2014/GSE63525_CH12-LX_Arrowhead_domainlist.txt.bed.mm9.bed_unmapped.bed
+
 
 #=======================================================================
 # HIPPIE and expression data
@@ -118,8 +140,29 @@ for C in ${DIXON_CELLS} ; do
         UCSC/hg18ToHg19.over.chain \
         Dixon2012/${C}.hg18.bed.hg19.bed \
         Dixon2012/${C}.hg18.bed.hg19.bed_unmapped.bed
+done
+
+#http://132.239.201.216/mouse/hi-c/mESC.domain.tar.gz
+# http://132.239.201.216/mouse/hi-c/cortex.domain.tar.gz
+DIXON_MOUSE="mESC cortex"
+for C in ${DIXON_MOUSE} ; do
+
+    # download
+    wget -P Dixon2012 http://132.239.201.216/mouse/hi-c/${C}.domain.tar.gz    
+    # extract and rename
+    tar xvfz Dixon2012/${C}.domain.tar.gz -C Dixon2012
+    cp Dixon2012/${C}/*combined/total.*combined.domain Dixon2012/mouse.${C}.mm9.bed
+
+    # liftover to mm10
+	${BIN}/liftOver \
+        Dixon2012/mouse.${C}.mm9.bed \
+        UCSC/mm9ToMm10.over.chain \
+        Dixon2012/mouse.${C}.mm9.bed.mm10.bed \
+        Dixon2012/mouse.${C}.mm9.bed_unmapped.bed
+
 
 done
+
 
 
 #=======================================================================
@@ -173,4 +216,11 @@ gunzip Rudan2015/*.gz
 mkdir -p Mifsud2015
 wget -P Mifsud2015 http://www.ebi.ac.uk/arrayexpress/files/E-MTAB-2323/E-MTAB-2323.additional.1.zip
 unzip Mifsud2015/E-MTAB-2323.additional.1.zip -d Mifsud2015
+
+#=======================================================================
+# Cohesin KO expression data from Dimitris Polychronopoulos <d.polychronopoulos@imperial.ac.uk>
+#=======================================================================
+# copied file manually to 
+# Dimitirs/RNAseqWTRad21KOMacrophages.RData
+
 

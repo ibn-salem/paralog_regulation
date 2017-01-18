@@ -81,9 +81,9 @@ names(COL_COMP_REG) <- c("A/A_REG", "B/B_REG", "DIF_REG", "AA", "BB", "A/B")
 #-----------------------------------------------------------------------
 
 # use local data or downlaod data from ensemble
-USE_LOCAL_HIC = FALSE
-LOAD_INPUT_DATA=FALSE
-LOAD_PAIRS=FALSE
+USE_LOCAL_HIC = TRUE
+LOAD_INPUT_DATA=TRUE
+LOAD_PAIRS=TRUE
 
 #-----------------------------------------------------------------------
 # Parameters critical to the analysis
