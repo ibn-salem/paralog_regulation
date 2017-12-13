@@ -1,0 +1,27 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+
+
+bin
+results
+paralog_regulation.Rproj
+
+# ignore data folders
+data/Andersson2014
+data/Dimitirs
+data/Dixon2012
+data/Eisenberg2013
+data/ExpressionAtlas
+data/HIPPIE
+data/Mifsud2015
+data/Rao2014
+data/Rudan2015
+data/UCSC
+data/UniProt
+data/canFam3
+data/hg19
+data/mm10
+data/temp
